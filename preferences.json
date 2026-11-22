@@ -38,6 +38,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.pins.grid",
+    "label": "Закреплённые вкладки плитками, как важные",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Папки"
   },
@@ -54,8 +60,26 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.unload.hide",
+    "label": "Убрать всё про выгрузку вкладок: крестики вместо минусов",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Перетаскивание"
+  },
+  {
+    "property": "mod.zbm.dnd.live-reorder",
+    "label": "Живая перестановка: вкладки расступаются, на месте будущей вкладки проекция",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.dnd.space-row-no-drop",
+    "label": "Строка с названием пространства не принимает вкладки",
+    "type": "checkbox",
+    "defaultValue": true
   },
   {
     "property": "mod.zbm.dnd.quiet-drop-zone",

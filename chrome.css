@@ -119,3 +119,151 @@
     border-radius: var(--border-radius-medium);
   }
 }
+
+/* Закреплённые вкладки пространства плитками, как важные: только значок,
+   та же сетка до четырёх в ряд. Папки, разделитель и всё остальное в
+   закреплённой области занимают ряд целиком, вкладки внутри папок остаются
+   строками. Число колонок считается по числу плиток: полноширинные соседи
+   не дают сетке самой схлопнуть пустые колонки, как это делает сетка важных. */
+@media -moz-pref("mod.zbm.pins.grid") {
+  :root[zen-sidebar-expanded="true"] .zen-workspace-pinned-tabs-section {
+    --zbm-pin-columns: 4;
+    display: grid !important;
+    grid-template-columns: repeat(var(--zbm-pin-columns), minmax(0, 1fr));
+    gap: var(--zen-space-4);
+    align-content: start;
+
+    /* stylelint-disable-next-line -- колонок столько, сколько плиток, но не больше четырёх */
+    &:not(:has(> .tabbrowser-tab:nth-child(4 of .tabbrowser-tab))) {
+      --zbm-pin-columns: 3;
+    }
+    &:not(:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab))) {
+      --zbm-pin-columns: 2;
+    }
+    &:not(:has(> .tabbrowser-tab:nth-child(2 of .tabbrowser-tab))) {
+      --zbm-pin-columns: 1;
+    }
+
+    & > :not(.tabbrowser-tab) {
+      grid-column: 1 / -1;
+    }
+
+    /* Пустой служебный элемент Zen: вне сетки, чтобы не занимал ряд. */
+    & > .zen-tab-group-start {
+      position: absolute;
+    }
+
+    & > .tabbrowser-tab {
+      --toolbarbutton-padding-inner: 0;
+      --zen-toolbar-element-bg: color-mix(in oklch, var(--toolbox-textcolor, currentColor) 4%, transparent);
+      min-width: 0;
+      max-width: unset;
+
+      &:not(:hover, [visuallyselected], [multiselected="true"]) > .tab-stack > .tab-background {
+        background: var(--zen-toolbar-element-bg);
+      }
+
+      & > .tab-stack > .tab-content {
+        justify-content: center;
+        padding: 0 !important;
+      }
+
+      & .tab-label-container,
+      & .tab-close-button,
+      & .tab-reset-button,
+      & .tab-reset-pin-button,
+      & .tab-audio-button {
+        display: none !important;
+      }
+
+      /* У закреплённой вкладки, ушедшей со своей страницы, Zen ставит значок
+         абсолютно у левого края. В плитке он стоит по центру, как все. */
+      & > .tab-stack > .tab-content > .tab-icon-stack {
+        position: static !important;
+        transform: none !important;
+      }
+
+      & :is(.tab-throbber, .tab-icon-pending, .tab-icon-image, .tab-sharing-icon-overlay, .tab-icon-overlay) {
+        margin-inline: 0 !important;
+      }
+    }
+
+    /* Проекция при перетаскивании размером с плитку, а не со строку. */
+    &[zbm-gap]::before {
+      height: var(--tab-min-height);
+      margin: var(--tab-margin-block);
+    }
+  }
+}
+
+/* Ничего про выгрузку вкладок: у папки нет кнопки «выгрузить все», у
+   закреплённой вкладки вместо минуса крестик, из меню убраны пункты
+   выгрузки. Что делает сам крестик, решает настройка Zen «Поведение
+   сочетания клавиш закрытия вкладки». */
+@media -moz-pref("mod.zbm.unload.hide") {
+  zen-folder > .tab-group-label-container > .tab-reset-button:not([live-folder-action]) {
+    display: none !important;
+  }
+
+  .tabbrowser-tab > .tab-stack > .tab-content > .tab-reset-button {
+    --zen-tab-button-line-rotation: 45deg !important;
+    --zen-tab-button-line-length: 15px !important;
+  }
+
+  #context_unloadTab,
+  #context_zenFolderUnloadAll,
+  #zen-folders-unload-folder,
+  #context_zenUnloadWorkspace,
+  #context_zenUnloadAllOtherWorkspace,
+  #zen-workspaces-panel-unload,
+  #zen-workspaces-panel-unload-others {
+    display: none !important;
+  }
+}
+
+/* Живая перестановка. Эти правила срабатывают только по атрибутам, которые
+   на время перетаскивания ставит zbm.uc.js, поэтому своей настройки в CSS
+   у них нет: её проверяет скрипт. */
+
+/* Всё, что стоит после проекции. */
+[zbm-after] {
+  order: 1 !important;
+}
+
+/* Перетаскиваемая вкладка уходит из раскладки, но остаётся в документе:
+   Zen продолжает с ней работать до конца перетаскивания. */
+.tabbrowser-tab[zbm-dragging] {
+  position: absolute !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Содержимое папки по умолчанию блочное, а order работает только во flex. */
+.tab-group-container[zbm-gap]:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Сама проекция: пустое место по размеру вкладки с лёгкой заливкой. */
+:is(.zen-workspace-tabs-section, .tab-group-container, zen-folder)[zbm-gap]::before {
+  content: "";
+  order: 1;
+  flex: none;
+  box-sizing: border-box;
+  height: calc(var(--zbm-gap-size, 40px) - 2 * var(--tab-margin-block));
+  margin: var(--tab-margin-block);
+  border-radius: var(--border-radius-medium);
+  corner-shape: superellipse(var(--zen-squircle-value));
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 9%, transparent);
+}
+
+/* Внутри папки проекция с тем же отступом слева, что и её вкладки. */
+:is(.tab-group-container, zen-folder)[zbm-gap]::before {
+  margin-inline-start: calc(14px + var(--tab-margin-block));
+}
+
+/* Пока стоит проекция, линия-индикатор Zen не нужна. */
+:root[zbm-live-dnd] #zen-drag-indicator {
+  opacity: 0 !important;
+}
