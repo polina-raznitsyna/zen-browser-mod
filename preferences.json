@@ -32,6 +32,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.sidebar.no-autoscroll-on-space-switch",
+    "label": "Не прокручивать список к активной вкладке при смене пространства",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.pins.sticky",
     "label": "Закреплённые вкладки не прокручиваются вместе с обычными",
     "type": "checkbox",
@@ -60,6 +66,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.folders.collapse-hides-all",
+    "label": "Свёрнутая папка прячет все вкладки, включая ту, с которой ушёл фокус",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.unload.hide",
     "label": "Убрать всё про выгрузку вкладок: крестики вместо минусов",
     "type": "checkbox",
@@ -76,8 +88,20 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.dnd.folder-drop-inside",
+    "label": "Бросок в папку: проекция внутри папки, свёрнутая раскрывается при наведении",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.dnd.space-row-no-drop",
-    "label": "Строка с названием пространства не принимает вкладки",
+    "label": "Строка с названием пространства не подсвечивается как место для броска",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.dnd.no-essential-landing",
+    "label": "Важные вкладки: без анимации подлёта после броска",
     "type": "checkbox",
     "defaultValue": true
   },
@@ -86,5 +110,27 @@
     "label": "Спокойная подсветка места, куда можно бросить вкладку",
     "type": "checkbox",
     "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Жест перелистывания пространств"
+  },
+  {
+    "property": "mod.zbm.swipe.easier",
+    "label": "Жест срабатывает легче: короткий быстрый свайп тоже перелистывает",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.swipe.threshold",
+    "label": "Какую долю ширины панели нужно протащить (в Zen 0.25)",
+    "type": "string",
+    "defaultValue": "0.12"
+  },
+  {
+    "property": "mod.zbm.swipe.velocity",
+    "label": "Вес скорости жеста (в Zen 0.5)",
+    "type": "string",
+    "defaultValue": "1"
   }
 ]

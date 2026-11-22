@@ -7,9 +7,10 @@
  * поставленный в нужное место через order, поэтому раскладку считает сам
  * браузер: папка растёт под вкладку, сетка перестраивается.
  *
- * Работает для одной перетаскиваемой вкладки. Папки, важные вкладки и
- * мультивыделение остаются на штатном индикаторе Zen. При любой ошибке
- * скрипт убирает своё и не мешает штатному перетаскиванию.
+ * Работает для одной вкладки, которую переносят внутри панели. Перетаскивание
+ * самих папок, важных вкладок, мультивыделения, копирование и разделение
+ * экрана остаются на штатном индикаторе Zen. При любой ошибке скрипт убирает
+ * своё и не мешает штатному перетаскиванию.
  *
  * Сверено с исходниками Zen 1.24.3b: ZenDragAndDrop.js.
  */
@@ -17,8 +18,9 @@
   "use strict";
 
   const PREF_LIVE = "mod.zbm.dnd.live-reorder";
-  const PREF_GRID = "mod.zbm.pins.grid";
   const PREF_SPACE_ROW = "mod.zbm.dnd.space-row-no-drop";
+  const PREF_FOLDER_INSIDE = "mod.zbm.dnd.folder-drop-inside";
+  const PREF_NO_ESSENTIAL_LANDING = "mod.zbm.dnd.no-essential-landing";
 
   const TAB_DROP_TYPE = "application/x-moz-tabbrowser-tab";
   const ROW_SELECTOR =
@@ -26,6 +28,7 @@
   const SPACE_ROW_SELECTOR = ".zen-current-workspace-indicator";
   const MOVE_MS = 140;
   const MOVE_EASING = "cubic-bezier(0.2, 0, 0, 1)";
+  const FOLDER_OPEN_MS = 500;
   // Zen округляет координату линии, поэтому границы сравниваем с допуском.
   const EDGE_TOLERANCE = 2;
 
@@ -33,14 +36,18 @@
   const getPref = name => Services.prefs.getBoolPref(name, false);
 
   let dnd = null;
-  const originals = {};
+  let disposed = false;
+  let readyTimer = null;
   // Аргументы последнего _placeDropIndicator за текущий dragover: признак
   // того, что Zen в этот момент показывает линию, и её координата.
   let pendingIndicator = null;
-  // Текущая проекция: { node, before, grid, container, tagged, draggedTab }.
+  // Текущая проекция. node и before задают её место, slot это её прямоугольник
+  // в списке, dropElement и dropBefore это решение Zen, которому она отвечает.
   let gap = null;
   let dragSize = 0;
-  let skipDropTransition = false;
+  let dropping = false;
+  let hoverFolder = null;
+  let hoverTimer = null;
   const running = new Map();
 
   const reduceMotion = () =>
@@ -48,10 +55,7 @@
 
   const activeWorkspace = () => window.gZenWorkspaces?.activeWorkspaceElement;
 
-  const pinnedSection = () =>
-    activeWorkspace()?.querySelector(".zen-workspace-pinned-tabs-section");
-
-  /** Все видимые строки активного пространства: то, что может сдвигаться. */
+  /** Все строки активного пространства: то, что может сдвигаться. */
   function rows() {
     const workspace = activeWorkspace();
     if (!workspace) {
@@ -66,26 +70,31 @@
   const measure = list =>
     new Map(list.map(el => [el, el.getBoundingClientRect()]));
 
-  /**
-   * Доводит строки от старых мест к новым. Раскладка уже поменялась,
-   * поэтому каждая строка стартует со смещением к прежнему месту и едет в ноль.
-   */
-  function glide(list, before) {
+  function cancelRunning() {
     for (const animation of running.values()) {
       animation.cancel();
     }
     running.clear();
+  }
+
+  /**
+   * Доводит строки от старых мест к новым. Раскладка уже поменялась, поэтому
+   * каждая строка стартует со смещением к прежнему месту и едет в ноль.
+   * Раскладку анимация не трогает: Zen продолжает видеть строки на новых местах.
+   */
+  function glide(list, was) {
+    cancelRunning();
     if (reduceMotion()) {
       return;
     }
     for (const el of list) {
-      const was = before.get(el);
-      const now = el.getBoundingClientRect();
-      if (!was?.height || !now.height) {
+      const from = was.get(el);
+      const to = el.getBoundingClientRect();
+      if (!from?.height || !to.height) {
         continue;
       }
-      const dx = was.left - now.left;
-      const dy = was.top - now.top;
+      const dx = from.left - to.left;
+      const dy = from.top - to.top;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
         continue;
       }
@@ -116,12 +125,24 @@
 
   function clearGap(animate) {
     if (!gap) {
+      cancelRunning();
       return;
     }
     const list = animate ? rows() : [];
-    const before = measure(list);
+    const was = measure(list);
     removeGapAttributes();
-    glide(list, before);
+    glide(list, was);
+  }
+
+  /** Прямоугольник проекции в списке. В сетке его не вычислить, там свой способ удержания. */
+  function slotRect(target, container) {
+    if (target.grid) {
+      return null;
+    }
+    const box = container.getBoundingClientRect();
+    const rect = target.node.getBoundingClientRect();
+    const top = target.before ? rect.top - dragSize : rect.bottom;
+    return { top, bottom: top + dragSize, left: box.left, right: box.right };
   }
 
   /**
@@ -139,7 +160,8 @@
       return;
     }
     const list = rows();
-    const before = measure(list);
+    const was = measure(list);
+    cancelRunning();
     removeGapAttributes();
 
     root.style.setProperty("--zbm-gap-size", `${dragSize}px`);
@@ -154,18 +176,35 @@
     container.setAttribute("zbm-gap", "");
     draggedTab.setAttribute("zbm-dragging", "");
     root.setAttribute("zbm-live-dnd", "");
-    gap = { ...target, container, tagged, draggedTab };
+    gap = {
+      node: target.node,
+      before: target.before,
+      grid: !!target.grid,
+      container,
+      tagged,
+      draggedTab,
+      dropElement: draggedTab._dragData.dropElement,
+      dropBefore: draggedTab._dragData.dropBefore,
+    };
+    gap.slot = slotRect(gap, container);
 
-    glide(list, before);
+    glide(list, was);
   }
 
   const near = (a, b) => Math.abs(a - b) <= EDGE_TOLERANCE;
+
+  const insideSlot = (event, slot) =>
+    slot &&
+    event.clientY >= slot.top &&
+    event.clientY < slot.bottom &&
+    event.clientX >= slot.left &&
+    event.clientX < slot.right;
 
   /** Строка заголовка папки сама проекцию не держит: до неё и после свёрнутой папки место принадлежит папке. */
   function normalizeTarget(node, before) {
     if (node.classList.contains("tab-group-label-container")) {
       const folder = node.parentElement;
-      if (before || folder.hasAttribute("collapsed")) {
+      if (before || folder.collapsed) {
         return { node: folder, before };
       }
     }
@@ -182,8 +221,8 @@
    */
   function targetFromIndicator(draggedTab, y) {
     const data = draggedTab._dragData;
-    const element = data?.dropElement;
-    const before = !!data?.dropBefore;
+    const element = data.dropElement;
+    const before = !!data.dropBefore;
 
     if (element && element !== draggedTab) {
       if (gBrowser.isTab(element)) {
@@ -220,29 +259,29 @@
   /**
    * Цель внутри сетки закреплённых. Штатная логика Zen считает список
    * вертикальным и в сетке ошибается, поэтому здесь цель выбирается по
-   * плитке под курсором: левая половина ставит перед ней, правая после.
+   * плитке под курсором: ближняя к началу строки половина ставит перед
+   * плиткой, дальняя после.
    */
   function targetFromGrid(event, draggedTab) {
-    if (!getPref(PREF_GRID)) {
-      return null;
-    }
-    const section = pinnedSection();
+    const section = activeWorkspace()?.querySelector(".zen-workspace-pinned-tabs-section");
     if (!section?.contains(event.target)) {
       return null;
     }
+    const style = getComputedStyle(section);
+    if (style.display !== "grid") {
+      return null;
+    }
+    const rtl = style.direction === "rtl";
     const tile = event.target.closest?.(".tabbrowser-tab");
     if (tile && tile !== draggedTab && tile.parentElement === section) {
       const rect = tile.getBoundingClientRect();
-      return {
-        node: tile,
-        before: event.clientX < rect.left + rect.width / 2,
-        grid: true,
-      };
+      const leftHalf = event.clientX < rect.left + rect.width / 2;
+      return { node: tile, before: leftHalf !== rtl, grid: true };
     }
     if (event.target !== section) {
       return null;
     }
-    // Курсор над самой проекцией или над пустым местом в ряду плиток.
+    // Курсор над самой проекцией: плитки под ним нет, место уже выбрано.
     if (gap?.grid && gap.container === section) {
       return gap;
     }
@@ -253,26 +292,64 @@
       const rect = el.getBoundingClientRect();
       return rect.height && event.clientY >= rect.top && event.clientY < rect.bottom;
     });
-    if (!inRow.length) {
-      return null;
-    }
-    const left = inRow.filter(el => el.getBoundingClientRect().right <= event.clientX);
-    return left.length
-      ? { node: left.at(-1), before: false, grid: true }
-      : { node: inRow[0], before: true, grid: true };
+    return inRow.length ? { node: inRow.at(-1), before: false, grid: true } : null;
   }
 
-  function canDragLive(draggedTab) {
+  function cancelFolderHover() {
+    clearTimeout(hoverTimer);
+    hoverTimer = null;
+    hoverFolder = null;
+  }
+
+  /**
+   * Курсор на заголовке папки, и Zen готов бросить вкладку в неё. Вместо
+   * подсветки заголовка показываем проекцию первой строкой внутри папки:
+   * именно туда Zen и положит вкладку. Свёрнутая папка сначала раскрывается,
+   * если задержаться над ней.
+   *
+   * @returns {object|null|undefined} Место для проекции; null, пока ждём
+   *   раскрытия папки; undefined, если курсор не на заголовке папки.
+   */
+  function targetFromFolderLabel(event) {
+    const label = getPref(PREF_FOLDER_INSIDE)
+      ? event.target.closest?.(".tab-group-label-container.zen-drop-target")
+      : null;
+    const folder = label?.parentElement;
+    if (!folder?.isZenFolder || !document.getElementById("zen-dragover-background")) {
+      cancelFolderHover();
+      return undefined;
+    }
+    if (folder.collapsed) {
+      if (hoverFolder !== folder) {
+        cancelFolderHover();
+        hoverFolder = folder;
+        hoverTimer = setTimeout(() => {
+          if (hoverFolder === folder && folder.isConnected) {
+            folder.collapsed = false;
+          }
+          cancelFolderHover();
+        }, FOLDER_OPEN_MS);
+      }
+      return null;
+    }
+    cancelFolderHover();
+    return { node: label, before: false };
+  }
+
+  function canDragLive(event, draggedTab) {
     return (
       getPref(PREF_LIVE) &&
       dragSize > 0 &&
       root.getAttribute("zen-sidebar-expanded") === "true" &&
       draggedTab &&
       gBrowser.isTab(draggedTab) &&
-      draggedTab.ownerGlobal === window &&
+      draggedTab.documentGlobal === window &&
       !draggedTab.hasAttribute("zen-essential") &&
       !draggedTab.group?.hasAttribute("split-view-group") &&
-      draggedTab._dragData?.movingTabs?.length === 1
+      draggedTab._dragData?.movingTabs?.length === 1 &&
+      !draggedTab._dragData.fromTabList &&
+      !dnd._splitDropReady &&
+      dnd.getDropEffectForTabDrag(event) === "move"
     );
   }
 
@@ -281,17 +358,37 @@
     const indicator = pendingIndicator;
     pendingIndicator = null;
     const draggedTab = event.dataTransfer?.mozGetDataAt(TAB_DROP_TYPE, 0);
-    if (!canDragLive(draggedTab)) {
+    if (!canDragLive(event, draggedTab)) {
+      cancelFolderHover();
       clearGap(true);
+      return;
+    }
+    const data = draggedTab._dragData;
+
+    // Курсор внутри проекции: место уже выбрано, держим его. Иначе сдвиг
+    // строк под неподвижным курсором заставлял бы цель прыгать.
+    if (gap && insideSlot(event, gap.slot)) {
+      data.dropElement = gap.dropElement;
+      data.dropBefore = gap.dropBefore;
       return;
     }
 
     const gridTarget = targetFromGrid(event, draggedTab);
     if (gridTarget) {
       // Zen на каждом dragover пересчитывает цель по-своему, возвращаем нашу.
-      draggedTab._dragData.dropElement = gridTarget.node;
-      draggedTab._dragData.dropBefore = gridTarget.before;
+      data.dropElement = gridTarget.node;
+      data.dropBefore = gridTarget.before;
       showGap(gridTarget, draggedTab);
+      return;
+    }
+
+    const folderTarget = targetFromFolderLabel(event);
+    if (folderTarget) {
+      showGap(folderTarget, draggedTab);
+      return;
+    }
+    if (folderTarget === null) {
+      clearGap(true);
       return;
     }
 
@@ -303,9 +400,16 @@
         clearGap(true);
       }
     } else if (!window.gZenPinnedTabManager?._dragIndicator?.isConnected) {
-      // Линии нет: Zen подсвечивает папку целиком или цели нет вовсе.
+      // Линии нет: Zen подсвечивает цель целиком или цели нет вовсе.
       clearGap(true);
     }
+  }
+
+  function endDrag() {
+    cancelFolderHover();
+    removeGapAttributes();
+    cancelRunning();
+    pendingIndicator = null;
   }
 
   function guarded(step) {
@@ -314,12 +418,16 @@
     } catch (error) {
       console.error("[zen-browser-mod] live reorder failed:", error);
       try {
-        removeGapAttributes();
+        endDrag();
       } catch {}
     }
   }
 
-  /** Строка пространства перестаёт быть местом для броска, пока включена настройка. */
+  /**
+   * Строка пространства не подсвечивается как место для броска, пока включена
+   * настройка. Бросок на неё Zen по-прежнему принимает: вкладка закрепится
+   * и встанет туда, где стоит проекция.
+   */
   function syncSpaceRows() {
     const off = getPref(PREF_SPACE_ROW);
     for (const row of document.querySelectorAll(SPACE_ROW_SELECTOR)) {
@@ -327,12 +435,21 @@
     }
   }
 
+  const originals = {};
   const wrappers = {
     startTabDrag(event, tab, ...args) {
+      // Прошлое перетаскивание могло оборваться без dragend.
+      guarded(endDrag);
       const result = originals.startTabDrag.call(this, event, tab, ...args);
       guarded(() => {
         syncSpaceRows();
         dragSize = gBrowser.isTab(tab) ? tab.getBoundingClientRect().height : 0;
+        // Изображение важной вкладки система доводит до места из неверной
+        // точки. Переписать этот полёт мод не может, только не запускать его.
+        if (getPref(PREF_NO_ESSENTIAL_LANDING) && tab.hasAttribute?.("zen-essential")) {
+          this._dropLandingArmed = false;
+          this.ZenDragAndDropService.armDropLanding(false);
+        }
       });
       return result;
     },
@@ -349,39 +466,54 @@
       return result;
     },
 
-    // Перед броском раскладка возвращается к исходной: Zen сам переносит
-    // вкладку и сам считает, куда приземлить её изображение.
+    // Проекция стоит до тех пор, пока Zen не перенёс вкладку: Firefox снимает
+    // положения строк перед броском и после, и с проекцией они совпадают,
+    // поэтому его собственная анимация перестановки не запускается второй раз.
     handle_drop(event) {
-      const wasLive = !!gap;
-      guarded(() => clearGap(false));
-      skipDropTransition = wasLive;
+      dropping = !!gap;
+      cancelFolderHover();
       try {
         return originals.handle_drop.call(this, event);
       } finally {
-        skipDropTransition = false;
+        dropping = false;
+        guarded(endDrag);
       }
     },
 
-    // Штатная анимация раздвигает соседей уже после броска. С проекцией они
-    // стоят на местах заранее, второй раз двигать их не нужно.
+    // Штатная анимация Zen раздвигает соседей уже после броска. С проекцией
+    // они стоят на местах заранее.
     handle_drop_transition(...args) {
-      if (skipDropTransition) {
+      if (dropping) {
         return undefined;
       }
       return originals.handle_drop_transition.call(this, ...args);
     },
 
+    // Zen зовёт этот метод сразу после переноса вкладки и до того, как
+    // посчитает, куда приземлить её изображение. Здесь проекция и уходит:
+    // вкладка уже стоит на её месте.
+    _handle_dropCreateSplit(...args) {
+      if (dropping) {
+        guarded(endDrag);
+      }
+      return originals._handle_dropCreateSplit.call(this, ...args);
+    },
+
     handle_dragend(event) {
-      const result = originals.handle_dragend.call(this, event);
-      guarded(() => clearGap(true));
-      dragSize = 0;
-      return result;
+      try {
+        return originals.handle_dragend.call(this, event);
+      } finally {
+        cancelFolderHover();
+        guarded(() => clearGap(true));
+        dragSize = 0;
+      }
     },
   };
 
   // Вкладку утащили с панели на страницу: проекция в списке больше не нужна.
   function onWindowDragOver(event) {
-    if (gap && !event.target.closest?.("#navigator-toolbox")) {
+    if ((gap || hoverTimer) && !event.target.closest?.("#navigator-toolbox")) {
+      cancelFolderHover();
       guarded(() => clearGap(true));
     }
   }
@@ -400,13 +532,17 @@
   }
 
   function uninstall() {
+    disposed = true;
+    clearTimeout(readyTimer);
     if (!dnd) {
       return;
     }
-    guarded(() => clearGap(false));
-    for (const name of Object.keys(wrappers)) {
+    guarded(endDrag);
+    for (const [name, wrapper] of Object.entries(wrappers)) {
       // Обёртки лежат собственными свойствами поверх методов класса.
-      delete dnd[name];
+      if (Object.hasOwn(dnd, name) && dnd[name] === wrapper) {
+        delete dnd[name];
+      }
     }
     window.removeEventListener("dragover", onWindowDragOver, true);
     Services.prefs.removeObserver(PREF_SPACE_ROW, prefObserver);
@@ -420,14 +556,25 @@
   // Скрипт может загрузиться раньше, чем Zen соберёт панель вкладок.
   let attempts = 0;
   function whenReady() {
+    if (disposed) {
+      return;
+    }
     let ready = false;
     try {
-      ready = !!(window.gBrowser?.tabContainer?.tabDragAndDrop && window.gZenWorkspaces?.activeWorkspaceElement);
+      ready = !!(
+        window.gBrowser?.tabContainer?.tabDragAndDrop &&
+        window.gZenWorkspaces?.activeWorkspaceElement
+      );
     } catch {}
     if (ready) {
-      guarded(install);
+      try {
+        install();
+      } catch (error) {
+        console.error("[zen-browser-mod] live reorder failed to start:", error);
+        uninstall();
+      }
     } else if (attempts++ < 100) {
-      setTimeout(whenReady, 200);
+      readyTimer = setTimeout(whenReady, 200);
     }
   }
   whenReady();
