@@ -1,0 +1,66 @@
+[
+  {
+    "type": "separator",
+    "label": "Важные вкладки"
+  },
+  {
+    "property": "mod.zbm.essentials.same-height",
+    "label": "Высота важных вкладок как у обычных",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.essentials.soft-fill",
+    "label": "Светлее заливка важных вкладок, наведение как у обычных",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Список вкладок"
+  },
+  {
+    "property": "mod.zbm.sidebar.hide-scrollbar",
+    "label": "Скрыть полосу прокрутки",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.sidebar.no-bottom-gap",
+    "label": "Убрать пустое место под вкладками",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.pins.sticky",
+    "label": "Закреплённые вкладки не прокручиваются вместе с обычными",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Папки"
+  },
+  {
+    "property": "mod.zbm.folders.sections",
+    "label": "Раскрытая папка выглядит разделом с фоном",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.folders.chevron",
+    "label": "Шеврон вместо значка папки",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Перетаскивание"
+  },
+  {
+    "property": "mod.zbm.dnd.quiet-drop-zone",
+    "label": "Спокойная подсветка места, куда можно бросить вкладку",
+    "type": "checkbox",
+    "defaultValue": true
+  }
+]

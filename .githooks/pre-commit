@@ -1,0 +1,7 @@
+#!/bin/sh
+# Sine скачивает обновление мода, только когда updatedAt в theme.json новее,
+# чем у установленной копии. Ставим текущее время при каждом коммите.
+set -e
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+sed -i -E "s/(\"updatedAt\": \")[^\"]*\"/\1${now}\"/" theme.json
+git add theme.json

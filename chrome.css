@@ -1,0 +1,121 @@
+/*
+ * Каждый блок включается своей настройкой из preferences.json и ничего не
+ * делает, пока она выключена. Селекторы сверены с исходниками Zen 1.24.3b.
+ */
+
+/* Важные вкладки той же высоты, что обычные. Zen задаёт им свои 46px;
+   inherit возвращает высоту обычных вкладок, какой бы она ни была. */
+@media -moz-pref("mod.zbm.essentials.same-height") {
+  :is(#navigator-toolbox, .zen-library-space-body)[zen-sidebar-expanded="true"] #zen-essentials {
+    --tab-min-height: inherit !important;
+  }
+}
+
+/* Важные вкладки: заливка светлее, а наведение даёт тот же фон, что у
+   обычных вкладок. Выбранную вкладку не трогаем, у неё свой фон. */
+@media -moz-pref("mod.zbm.essentials.soft-fill") {
+  .tabbrowser-tab[zen-essential="true"] {
+    --zen-toolbar-element-bg: color-mix(in oklch, var(--toolbox-textcolor, currentColor) 4%, transparent);
+
+    &:hover:not([visuallyselected], [multiselected="true"]) > .tab-stack > .tab-background {
+      background: var(--tab-background-color-hover) !important;
+    }
+  }
+}
+
+/* Без полосы прокрутки в списке вкладок. */
+@media -moz-pref("mod.zbm.sidebar.hide-scrollbar") {
+  zen-workspace > arrowscrollbox::part(scrollbox),
+  .zen-workspace-tabs-section {
+    scrollbar-width: none !important;
+  }
+}
+
+/* Zen добавляет под вкладками пустое место высотой в три вкладки.
+   Оставляем только обычный зазор. */
+@media -moz-pref("mod.zbm.sidebar.no-bottom-gap") {
+  zen-workspace > arrowscrollbox[overflowing]::part(scrollbox) {
+    padding-block-end: var(--tab-margin-block) !important;
+  }
+}
+
+/* Закреплённые вкладки стоят на месте, прокручиваются только обычные.
+   Общая прокрутка списка выключается, вместо неё у каждой части своя.
+   Закреплённым отдаётся не больше 65% высоты: если их слишком много,
+   они прокручиваются сами, и обычные вкладки не пропадают с экрана. */
+@media -moz-pref("mod.zbm.pins.sticky") {
+  :root[zen-sidebar-expanded="true"] zen-workspace > arrowscrollbox.workspace-arrowscrollbox {
+    flex: 1 1 100%;
+    overflow-y: hidden !important;
+
+    & > .zen-workspace-pinned-tabs-section {
+      flex: 0 1 auto;
+      max-height: 65%;
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+
+    /* При свёрнутых закреплённых Zen сам обрезает секцию, не мешаем ему. */
+    zen-workspace[collapsedpinnedtabs] & > .zen-workspace-pinned-tabs-section {
+      overflow-y: clip;
+    }
+
+    & > .zen-workspace-normal-tabs-section {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto !important;
+      padding-block-end: var(--tab-margin-block);
+    }
+  }
+}
+
+/* Раскрытая папка выглядит разделом: карточка с фоном и тонкой рамкой
+   вокруг заголовка и вкладок. Свёрнутая остаётся обычной строкой. */
+@media -moz-pref("mod.zbm.folders.sections") {
+  :root[zen-sidebar-expanded="true"] zen-folder:not([collapsed]) {
+    background-color: color-mix(in srgb, currentColor 5%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 7%, transparent);
+    border-radius: calc(var(--border-radius-medium) + 2px);
+    margin-block: var(--tab-margin-block);
+    margin-inline-end: var(--tab-margin-block);
+    padding-block-end: var(--tab-margin-block);
+  }
+}
+
+/* Вместо значка папки шеврон: смотрит вправо у свёрнутой папки и вниз у
+   раскрытой. Форма взята из шеврона, которым Zen сворачивает закреплённые
+   вкладки пространства. Свой значок папке больше не назначить, поэтому
+   пункт меню «Изменить значок» скрыт. */
+@media -moz-pref("mod.zbm.folders.chevron") {
+  :root[zen-sidebar-expanded="true"] zen-folder > .tab-group-label-container > .tab-group-folder-icon {
+    background-color: currentColor;
+    opacity: 0.55;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M13.022 8.999C13.02 8.73 12.925 8.504 12.71 8.292L6.545 2.263C6.374 2.085 6.158 2 5.903 2C5.388 2 4.978 2.399 4.978 2.913C4.978 3.161 5.087 3.394 5.259 3.577L10.822 8.998L5.259 14.421C5.089 14.605 4.978 14.831 4.978 15.087C4.978 15.601 5.388 16 5.903 16C6.156 16 6.374 15.915 6.545 15.737L12.71 9.706C12.927 9.494 13.022 9.267 13.022 8.999Z'/%3E%3C/svg%3E")
+      center / 13px no-repeat;
+    transition: rotate 0.1s;
+
+    & > svg {
+      display: none;
+    }
+  }
+
+  :root[zen-sidebar-expanded="true"] zen-folder:not([collapsed]) > .tab-group-label-container > .tab-group-folder-icon {
+    rotate: 90deg;
+  }
+
+  #context_zenFolderChangeIcon {
+    display: none !important;
+  }
+}
+
+/* При перетаскивании Zen заливает строку пространства или папки, на
+   которую можно бросить вкладку, основным цветом темы во всю ширину
+   панели. Делаем подсветку спокойной и по размеру вкладки. */
+@media -moz-pref("mod.zbm.dnd.quiet-drop-zone") {
+  #zen-dragover-background {
+    background: color-mix(in srgb, currentColor 10%, transparent) !important;
+    left: calc(var(--zen-toolbox-padding) + var(--tab-margin-block)) !important;
+    width: calc(100% - 2 * (var(--zen-toolbox-padding) + var(--tab-margin-block))) !important;
+    border-radius: var(--border-radius-medium);
+  }
+}
