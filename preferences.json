@@ -45,7 +45,7 @@
   },
   {
     "property": "mod.zbm.pins.grid",
-    "label": "Закреплённые вкладки плитками, как важные",
+    "label": "Закреплённые вкладки плитками, как важные, с тем же числом колонок",
     "type": "checkbox",
     "defaultValue": true
   },
@@ -89,7 +89,13 @@
   },
   {
     "property": "mod.zbm.dnd.folder-drop-inside",
-    "label": "Бросок в папку: проекция внутри папки, свёрнутая раскрывается при наведении",
+    "label": "Свёрнутая папка раскрывается, если задержать над ней вкладку",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.dnd.ghost-follows-slot",
+    "label": "Вкладка под курсором меняет вид вместе с проекцией: плитка над сеткой, строка над списком",
     "type": "checkbox",
     "defaultValue": true
   },

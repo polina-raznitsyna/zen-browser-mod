@@ -1,10 +1,12 @@
 /*
  * Правки поведения боковой панели, не связанные с перетаскиванием:
- * свёрнутые папки, автопрокрутка списка и жест перелистывания пространств.
- * Каждая включается своей настройкой и проверяет её в момент срабатывания.
+ * свёрнутые папки и закреплённые, число колонок в сетке закреплённых,
+ * подсказка у крестика, автопрокрутка списка и жест перелистывания
+ * пространств. Каждая включается своей настройкой и проверяет её в момент
+ * срабатывания.
  *
- * Сверено с исходниками Zen 1.24.3b: ZenFolders.mjs, ZenSpacesSwipe.mjs,
- * ZenSpaceManager.mjs.
+ * Сверено с исходниками Zen 1.24.3b: ZenFolders.mjs, ZenFolder.mjs,
+ * ZenSpace.mjs, ZenSpacesSwipe.mjs, ZenSpaceManager.mjs.
  */
 (() => {
   "use strict";
@@ -14,10 +16,17 @@
   const PREF_SWIPE = "mod.zbm.swipe.easier";
   const PREF_SWIPE_THRESHOLD = "mod.zbm.swipe.threshold";
   const PREF_SWIPE_VELOCITY = "mod.zbm.swipe.velocity";
+  const PREF_PINS_GRID = "mod.zbm.pins.grid";
+  const PREF_UNLOAD_HIDE = "mod.zbm.unload.hide";
+  const PREF_ZEN_CLOSE_BEHAVIOR = "zen.pinned-tab-manager.close-shortcut-behavior";
 
   // Zen анимирует папку около 180 мс. Свою правку начинаем после него,
   // чтобы две анимации одной папки не шли одновременно.
   const FOLDER_SETTLE_MS = 350;
+  // Столько же длится сворачивание папок в Zen.
+  const PINS_ANIMATION_MS = 180;
+
+  const root = document.documentElement;
 
   const getPref = name => Services.prefs.getBoolPref(name, false);
   const getNumber = (name, fallback) => {
@@ -37,52 +46,324 @@
    * Свёрнутая папка прячет все вкладки.
    *
    * Zen оставляет под свёрнутой папкой вкладку, которая была активной, и
-   * убирает её только при выгрузке. Здесь она уходит внутрь, как только с неё
-   * ушёл фокус, а при сворачивании папки уходит и активная. То же для
-   * закреплённых вкладок пространства, свёрнутых кликом по его названию.
-   * Прячет вкладку штатная анимация Zen, сама вкладка при этом не выгружается.
+   * убирает её только при выгрузке. Здесь при сворачивании уходит и активная,
+   * а вкладка, показанная позже, уходит внутрь, как только с неё ушёл фокус.
+   * То же для закреплённых вкладок пространства, свёрнутых кликом по его
+   * названию: для Zen это такая же папка. Вкладки при этом не выгружаются.
    */
   const folderOf = tab =>
     tab.group?.hasAttribute("split-view-group") ? tab.group.group : tab.group;
 
-  /** Лежит ли вкладка в этой папке. У свёрнутых закреплённых вкладки лежат не в самом элементе, а в его groupContainer. */
-  const holds = (folder, tab) =>
-    folder.contains(tab) || !!folder.groupContainer?.contains(tab);
+  const isCollapsiblePins = group =>
+    group?.localName === "zen-workspace-collapsible-pins";
 
-  async function hideIntoFolders(collapsedNow = null) {
+  /**
+   * Папка, под которой вкладка сейчас показана как активная. Для вкладки в
+   * раскрытой папке внутри свёрнутых закреплённых это сами закреплённые:
+   * в цепочке папок вкладки Zen их не держит.
+   */
+  function activeOwner(tab) {
+    const folder = folderOf(tab);
+    if (folder?.isZenFolder && folder.activeGroups?.length) {
+      return folder;
+    }
+    const pins = window.gZenWorkspaces?.workspaceElement?.(
+      tab.getAttribute("zen-workspace-id")
+    )?.collapsiblePins;
+    const inPins = tab.pinned && !tab.hasAttribute("zen-essential");
+    return inPins && pins?.collapsed && pins.hasAttribute("has-active") ? pins : null;
+  }
+
+  /** Убирает внутрь вкладки, оставшиеся на виду под свёрнутыми папками, кроме выбранной. */
+  async function hideIntoFolders() {
     const tabs = [...document.querySelectorAll(".tabbrowser-tab[folder-active]")];
     for (const tab of tabs) {
       // Пока шла предыдущая анимация, всё могло поменяться: проверяем заново.
       if (disposed || !getPref(PREF_COLLAPSE_HIDES_ALL)) {
         return;
       }
-      if (!tab.isConnected || !tab.hasAttribute("folder-active") || tab.multiselected) {
+      if (
+        !tab.isConnected ||
+        !tab.hasAttribute("folder-active") ||
+        tab.selected ||
+        tab.multiselected
+      ) {
         continue;
       }
-      const owner = folderOf(tab);
-      if (!owner?.isZenFolder || !owner.collapsed) {
-        continue;
+      const owner = activeOwner(tab);
+      if (owner) {
+        await gZenFolders.animateUnload(owner, tab);
       }
-      // Активная вкладка уходит только из той папки, которую сейчас свернули.
-      if (tab.selected && !(collapsedNow?.collapsed && holds(collapsedNow, tab))) {
-        continue;
-      }
-      await gZenFolders.animateUnload(owner, tab);
     }
   }
 
-  const hideTimers = new Map();
-  function scheduleHide(key, collapsedNow) {
-    clearTimeout(hideTimers.get(key));
-    hideTimers.set(
-      key,
-      setTimeout(() => {
-        hideTimers.delete(key);
-        hideIntoFolders(collapsedNow).catch(error =>
-          console.error("[zen-browser-mod] hiding folder tab failed:", error)
-        );
-      }, FOLDER_SETTLE_MS)
+  let hideTimer = null;
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      hideTimer = null;
+      hideIntoFolders().catch(error =>
+        console.error("[zen-browser-mod] hiding folder tab failed:", error)
+      );
+    }, FOLDER_SETTLE_MS);
+  }
+
+  /**
+   * На время вызова делает так, что Zen не видит в папке выбранных вкладок.
+   * Какие вкладки оставить на виду, animateCollapse решает в самом начале, до
+   * первой паузы, по tab.selected и tab.multiselected. Без них он сворачивает
+   * папку целиком одной анимацией, как папку без активных вкладок.
+   *
+   * @returns {Function} Возвращает вкладкам настоящие свойства.
+   */
+  function pretendNothingSelected(group) {
+    const shadowed = [];
+    const container = group.groupContainer;
+    for (const tab of container?.querySelectorAll(".tabbrowser-tab") ?? []) {
+      if (tab.selected || tab.multiselected) {
+        for (const name of ["selected", "multiselected"]) {
+          Object.defineProperty(tab, name, { get: () => false, configurable: true });
+        }
+        shadowed.push(tab);
+      }
+    }
+    return () => {
+      for (const tab of shadowed) {
+        delete tab.selected;
+        delete tab.multiselected;
+      }
+    };
+  }
+
+  const pinsAnimations = new Map();
+
+  /** Секция закреплённых, если сворачивают их и они сейчас стоят сеткой. */
+  function pinsGridSection(group) {
+    const expanded = root.getAttribute("zen-sidebar-expanded") === "true";
+    return isCollapsiblePins(group) && expanded && getPref(PREF_PINS_GRID)
+      ? group.groupContainer
+      : null;
+  }
+
+  /**
+   * Сворачивание и раскрытие сетки закреплённых. Zen сдвигает содержимое
+   * области вверх отступом служебного элемента, а в сетке такой сдвиг не
+   * работает. Поэтому здесь высоту области ведёт своя анимация, а конечный
+   * вид свёрнутой области задан в chrome.css.
+   *
+   * @param {Element} section - Секция закреплённых.
+   * @param {number} from - Её высота до переключения, снятая без пересчёта раскладки.
+   */
+  function animatePins(section, from) {
+    // Прошлая анимация могла не закончиться: её высота мешала бы измерить конечную.
+    pinsAnimations.get(section)?.cancel();
+    pinsAnimations.delete(section);
+    section.removeAttribute("zbm-pins-anim");
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+    // Высота после переключения: атрибут Zen уже поменял, пересчёт даёт конечный вид.
+    const to = section.getBoundingClientRect().height;
+    if (Math.abs(from - to) < 1) {
+      return;
+    }
+    section.setAttribute("zbm-pins-anim", "");
+    const animation = section.animate(
+      [{ height: `${from}px` }, { height: `${to}px` }],
+      { duration: PINS_ANIMATION_MS, easing: "ease-in-out" }
     );
+    pinsAnimations.set(section, animation);
+    animation.finished.then(
+      () => {
+        if (pinsAnimations.get(section) === animation) {
+          pinsAnimations.delete(section);
+          section.removeAttribute("zbm-pins-anim");
+        }
+      },
+      () => {}
+    );
+  }
+
+  function installFolderAnimations() {
+    const folders = gZenFolders;
+    const bounds = el => window.windowUtils.getBoundsWithoutFlushing(el).height;
+
+    const originalCollapse = folders.animateCollapse;
+    const collapse = function (group, ...rest) {
+      let restore = null;
+      let section = null;
+      let from = 0;
+      try {
+        if (getPref(PREF_COLLAPSE_HIDES_ALL)) {
+          restore = pretendNothingSelected(group);
+        }
+        section = pinsGridSection(group);
+        from = section ? bounds(section) : 0;
+      } catch (error) {
+        console.error("[zen-browser-mod] folder collapse tweak failed:", error);
+      }
+      try {
+        return originalCollapse.call(this, group, ...rest);
+      } finally {
+        try {
+          restore?.();
+          if (section) {
+            animatePins(section, from);
+          }
+        } catch (error) {
+          console.error("[zen-browser-mod] folder collapse tweak failed:", error);
+        }
+      }
+    };
+
+    const originalExpand = folders.animateExpand;
+    const expand = function (group, ...rest) {
+      let section = null;
+      let from = 0;
+      try {
+        section = pinsGridSection(group);
+        from = section ? bounds(section) : 0;
+      } catch (error) {
+        console.error("[zen-browser-mod] folder expand tweak failed:", error);
+      }
+      try {
+        return originalExpand.call(this, group, ...rest);
+      } finally {
+        try {
+          if (section) {
+            animatePins(section, from);
+          }
+        } catch (error) {
+          console.error("[zen-browser-mod] folder expand tweak failed:", error);
+        }
+      }
+    };
+
+    folders.animateCollapse = collapse;
+    folders.animateExpand = expand;
+    cleanups.push(() => {
+      if (Object.hasOwn(folders, "animateCollapse") && folders.animateCollapse === collapse) {
+        delete folders.animateCollapse;
+      }
+      if (Object.hasOwn(folders, "animateExpand") && folders.animateExpand === expand) {
+        delete folders.animateExpand;
+      }
+      for (const [section, animation] of pinsAnimations) {
+        animation.cancel();
+        section.removeAttribute("zbm-pins-anim");
+      }
+      pinsAnimations.clear();
+    });
+  }
+
+  /*
+   * Колонок в сетке закреплённых столько же, сколько в сетке важных.
+   *
+   * Число колонок у важных Zen подбирает сам по их количеству и ширине
+   * панели, настройки для него нет. Здесь оно считается по готовой раскладке
+   * и передаётся в chrome.css переменной. Если важные стоят в одну-две
+   * колонки или их нет, переменной нет, и сетка считает колонки по-своему.
+   */
+  let columnsFrame = 0;
+  function syncEssentialColumns() {
+    columnsFrame = 0;
+    let columns = 0;
+    try {
+      const moving = gBrowser.tabContainer.hasAttribute("movingtab");
+      if (moving) {
+        // При перетаскивании важные сдвинуты, считать по ним нельзя.
+        return;
+      }
+      if (getPref(PREF_PINS_GRID)) {
+        const container = gZenWorkspaces.getCurrentEssentialsContainer?.();
+        const tabs = [...(container?.children ?? [])].filter(el => gBrowser.isTab(el));
+        const first = tabs[0]?.getBoundingClientRect();
+        if (first?.height) {
+          columns = tabs.filter(
+            tab => Math.abs(tab.getBoundingClientRect().top - first.top) < 1
+          ).length;
+        }
+      }
+    } catch (error) {
+      console.error("[zen-browser-mod] essentials column count failed:", error);
+    }
+    if (columns >= 3) {
+      root.style.setProperty("--zbm-essential-columns", columns);
+    } else {
+      root.style.removeProperty("--zbm-essential-columns");
+    }
+  }
+
+  function queueEssentialColumns() {
+    if (!columnsFrame && !disposed) {
+      columnsFrame = requestAnimationFrame(syncEssentialColumns);
+    }
+  }
+
+  function installEssentialColumns() {
+    const essentials = document.getElementById("zen-essentials");
+    if (essentials) {
+      const mutations = new MutationObserver(queueEssentialColumns);
+      mutations.observe(essentials, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["hidden"],
+      });
+      const resizes = new ResizeObserver(queueEssentialColumns);
+      resizes.observe(essentials);
+      cleanups.push(() => {
+        mutations.disconnect();
+        resizes.disconnect();
+      });
+    }
+    const observer = { observe: queueEssentialColumns };
+    Services.prefs.addObserver(PREF_PINS_GRID, observer);
+    // Конец перетаскивания: важные вернулись на места.
+    listen(window, "dragend", queueEssentialColumns, true);
+    listen(window, "drop", queueEssentialColumns, true);
+    cleanups.push(() => {
+      Services.prefs.removeObserver(PREF_PINS_GRID, observer);
+      cancelAnimationFrame(columnsFrame);
+      root.style.removeProperty("--zbm-essential-columns");
+    });
+    queueEssentialColumns();
+  }
+
+  /*
+   * Подсказка у крестика закреплённой вкладки.
+   *
+   * Крестиком мод рисует кнопку Zen «выгрузить вкладку», и подсказка у неё
+   * остаётся про выгрузку. Пока Zen настроен закрывать вкладку этой кнопкой,
+   * подсказка берётся та же, что у обычного крестика.
+   */
+  const CLOSE_TOOLTIP = "tabbrowser-close-tabs-button";
+  const UNLOAD_TOOLTIP = "tabbrowser-unload-tab-button";
+
+  function onTabButtonHover(event) {
+    const button = event.target;
+    if (
+      !button?.classList?.contains("tab-reset-button") ||
+      !button.parentElement?.classList.contains("tab-content")
+    ) {
+      return;
+    }
+    const closes =
+      getPref(PREF_UNLOAD_HIDE) &&
+      Services.prefs.getStringPref(PREF_ZEN_CLOSE_BEHAVIOR, "") === "close";
+    const wanted = closes ? CLOSE_TOOLTIP : UNLOAD_TOOLTIP;
+    if (button.getAttribute("data-l10n-id") !== wanted) {
+      document.l10n.setAttributes(button, wanted, { tabCount: 1 });
+    }
+  }
+
+  function restoreTabButtonTooltips() {
+    const changed = document.querySelectorAll(
+      `.tab-content > .tab-reset-button[data-l10n-id="${CLOSE_TOOLTIP}"]`
+    );
+    for (const button of changed) {
+      document.l10n.setAttributes(button, UNLOAD_TOOLTIP, { tabCount: 1 });
+    }
   }
 
   /*
@@ -135,8 +416,11 @@
   }
 
   function install() {
-    listen(window, "TabSelect", () => scheduleHide("select"));
-    listen(window, "TabGroupCollapse", event => scheduleHide("collapse", event.target));
+    listen(window, "TabSelect", scheduleHide);
+    installFolderAnimations();
+    installEssentialColumns();
+    listen(gNavToolbox, "mouseover", onTabButtonHover, true);
+    cleanups.push(restoreTabButtonTooltips);
     installAutoscrollGuard();
     for (const type of ["MozSwipeGestureStart", "MozSwipeGestureUpdate"]) {
       listen(gNavToolbox, type, onSwipe, true);
@@ -149,10 +433,7 @@
     for (const cleanup of cleanups.splice(0)) {
       cleanup();
     }
-    for (const timer of hideTimers.values()) {
-      clearTimeout(timer);
-    }
-    hideTimers.clear();
+    clearTimeout(hideTimer);
   }
 
   // Ждём, пока Zen соберёт панель и повесит свой обработчик жеста: наш должен

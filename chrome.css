@@ -47,7 +47,10 @@
    Обе части ужимаются под высоту панели, поэтому общий список перестаёт
    переполняться и сам больше не прокручивается: у каждой части своя
    прокрутка. Закреплённым отдаётся не больше 65% высоты: если их слишком
-   много, они прокручиваются сами, и обычные вкладки не пропадают с экрана. */
+   много, они прокручиваются сами, и обычные вкладки не пропадают с экрана.
+
+   Вбок части не прокручиваются вовсе. Иначе горизонтальный жест по списку
+   уходит в их боковую прокрутку и не доходит до перелистывания пространств. */
 @media -moz-pref("mod.zbm.pins.sticky") {
   :root[zen-sidebar-expanded="true"] zen-workspace > arrowscrollbox.workspace-arrowscrollbox {
     flex: 1 1 100% !important;
@@ -56,6 +59,7 @@
     & > .zen-workspace-pinned-tabs-section {
       flex: 0 1 auto !important;
       max-height: 65% !important;
+      overflow-x: hidden !important;
       overflow-y: auto !important;
       scrollbar-width: none !important;
     }
@@ -63,6 +67,7 @@
     & > .zen-workspace-normal-tabs-section {
       flex: 1 1 0 !important;
       min-height: 0 !important;
+      overflow-x: hidden !important;
       overflow-y: auto !important;
       padding-block-end: var(--tab-margin-block) !important;
     }
@@ -70,87 +75,123 @@
 
   /* При свёрнутых закреплённых Zen сам обрезает секцию, оставляем как у него. */
   :root[zen-sidebar-expanded="true"] zen-workspace[collapsedpinnedtabs] > arrowscrollbox.workspace-arrowscrollbox > .zen-workspace-pinned-tabs-section {
-    overflow-y: clip !important;
+    overflow: clip !important;
   }
 }
 
-/* Закреплённые вкладки пространства плитками, как важные: только значок,
-   та же сетка до четырёх в ряд. Папки, разделитель и всё остальное в
-   закреплённой области занимают ряд целиком, вкладки внутри папок остаются
-   строками. Число колонок считается по числу плиток: полноширинные соседи
-   не дают сетке самой схлопнуть пустые колонки, как это делает сетка важных.
+/* Закреплённые вкладки пространства плитками, как важные: только значок.
+   Папки, разделитель и всё остальное в закреплённой области занимают ряд
+   целиком, вкладки внутри папок остаются строками.
 
-   Пока закреплённые свёрнуты или скрыты, сетка выключена: Zen сворачивает
-   область, сдвигая её содержимое вверх отступом первого элемента, а в сетке
-   такой сдвиг не работает. */
+   Колонок столько же, сколько у сетки важных: их число кладёт в
+   --zbm-essential-columns скрипт zbm-behavior.uc.js. Так плитки обеих сеток
+   стоят друг под другом. Если важных нет или они стоят в одну-две колонки,
+   колонок столько, сколько плиток, но не больше четырёх. */
 @media -moz-pref("mod.zbm.pins.grid") {
-  :root[zen-sidebar-expanded="true"] zen-workspace:not([collapsedpinnedtabs]) .zen-workspace-pinned-tabs-section:not([hidden]) {
-    --zbm-pin-columns: 4;
+  :root[zen-sidebar-expanded="true"] zen-workspace .zen-workspace-pinned-tabs-section:not([hidden]) {
+    --zbm-pin-count-columns: 4;
     display: grid !important;
-    grid-template-columns: repeat(var(--zbm-pin-columns), minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(var(--zbm-essential-columns, var(--zbm-pin-count-columns)), minmax(0, 1fr)) !important;
     gap: var(--zen-space-4) !important;
     align-content: start !important;
 
-    /* stylelint-disable-next-line -- колонок столько, сколько плиток, но не больше четырёх */
-    &:not(:has(> .tabbrowser-tab:nth-child(4 of .tabbrowser-tab))) {
-      --zbm-pin-columns: 3;
+    /* Вкладка, которую сейчас тащат, в счёт не идёт: её место занимает проекция. */
+    &:not(:has(> .tabbrowser-tab:nth-child(4 of .tabbrowser-tab:not([zbm-dragging])))) {
+      --zbm-pin-count-columns: 3;
     }
-    &:not(:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab))) {
-      --zbm-pin-columns: 2;
+    &:not(:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab:not([zbm-dragging])))) {
+      --zbm-pin-count-columns: 2;
     }
-    &:not(:has(> .tabbrowser-tab:nth-child(2 of .tabbrowser-tab))) {
-      --zbm-pin-columns: 1;
+    &:not(:has(> .tabbrowser-tab:nth-child(2 of .tabbrowser-tab:not([zbm-dragging])))) {
+      --zbm-pin-count-columns: 1;
+    }
+
+    /* Проекция среди плиток считается ещё одной плиткой, иначе после броска
+       число колонок поменялось бы и плитки перестроились. */
+    &[zbm-gap]:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab:not([zbm-dragging]))) {
+      --zbm-pin-count-columns: 4;
+    }
+    &[zbm-gap]:not(:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab:not([zbm-dragging])))) {
+      --zbm-pin-count-columns: 3;
+    }
+    &[zbm-gap]:not(:has(> .tabbrowser-tab:nth-child(2 of .tabbrowser-tab:not([zbm-dragging])))) {
+      --zbm-pin-count-columns: 2;
+    }
+    &[zbm-gap]:not(:has(> .tabbrowser-tab:nth-child(1 of .tabbrowser-tab:not([zbm-dragging])))) {
+      --zbm-pin-count-columns: 1;
     }
 
     & > :not(.tabbrowser-tab) {
       grid-column: 1 / -1 !important;
     }
 
-    /* Пустой служебный элемент Zen, которым он сворачивает область. В сетке
-       он занял бы целый ряд, а пока область раскрыта, он не нужен. */
+    /* Пустой служебный элемент Zen. Zen сворачивает область, сдвигая её
+       содержимое вверх отступом этого элемента. В сетке такой сдвиг не
+       работает, поэтому сворачивание сетки сделано ниже своими правилами. */
     & > .zen-tab-group-start {
       display: none !important;
-    }
-
-    & > .tabbrowser-tab {
-      --toolbarbutton-padding-inner: 0 !important;
-      --zen-toolbar-element-bg: color-mix(in oklch, var(--toolbox-textcolor, currentColor) 4%, transparent) !important;
-      min-width: 0 !important;
-      max-width: unset !important;
-
-      &:not(:hover, [visuallyselected], [multiselected="true"]) > .tab-stack > .tab-background {
-        background: var(--zen-toolbar-element-bg) !important;
-      }
-
-      & > .tab-stack > .tab-content {
-        justify-content: center !important;
-        padding: 0 !important;
-      }
-
-      & .tab-label-container,
-      & .tab-close-button,
-      & .tab-reset-button,
-      & .tab-reset-pin-button,
-      & .tab-audio-button {
-        display: none !important;
-      }
-
-      /* У закреплённой вкладки, ушедшей со своей страницы, Zen ставит значок
-         абсолютно у левого края. В плитке он стоит по центру, как все. */
-      & > .tab-stack > .tab-content > .tab-icon-stack {
-        position: static !important;
-        transform: none !important;
-      }
-
-      & :is(.tab-throbber, .tab-icon-pending, .tab-icon-image, .tab-sharing-icon-overlay, .tab-icon-overlay) {
-        margin-inline: 0 !important;
-      }
     }
 
     /* Проекция при перетаскивании размером с плитку, а не со строку. */
     &[zbm-gap]::before {
       height: var(--tab-min-height) !important;
       margin: var(--tab-margin-block) !important;
+    }
+
+    /* Пока zbm-behavior.uc.js ведёт высоту области при сворачивании и
+       раскрытии, всё, что не помещается, обрезается. */
+    &[zbm-pins-anim] {
+      overflow: clip !important;
+    }
+  }
+
+  /* Свёрнутая область: от неё остаётся разделитель. Вкладка, которую Zen
+     держит на виду как активную, остаётся на месте вместе с папкой или
+     разделением экрана, в которых она лежит. Пока идёт анимация, содержимое
+     ещё видно. */
+  :root[zen-sidebar-expanded="true"] zen-workspace[collapsedpinnedtabs] .zen-workspace-pinned-tabs-section:not([hidden], [zbm-pins-anim])
+    > :not(.pinned-tabs-container-separator, .tabbrowser-tab[folder-active], :has(.tabbrowser-tab[folder-active])) {
+    display: none !important;
+  }
+
+  /* Вид плитки. Он же нужен копии вкладки, из которой Zen делает картинку
+     под курсором: копия лежит вне сетки и без этих правил рисуется строкой. */
+  :is(
+    :root[zen-sidebar-expanded="true"] zen-workspace .zen-workspace-pinned-tabs-section:not([hidden]) > .tabbrowser-tab,
+    .tabbrowser-tab[drag-image][zbm-tile]
+  ) {
+    --toolbarbutton-padding-inner: 0 !important;
+    --zen-toolbar-element-bg: color-mix(in oklch, var(--toolbox-textcolor, currentColor) 4%, transparent) !important;
+    min-width: 0 !important;
+    max-width: unset !important;
+    margin-inline-start: 0 !important;
+
+    &:not(:hover, [visuallyselected], [multiselected="true"]) > .tab-stack > .tab-background {
+      background: var(--zen-toolbar-element-bg) !important;
+    }
+
+    & > .tab-stack > .tab-content {
+      justify-content: center !important;
+      padding: 0 !important;
+    }
+
+    & .tab-label-container,
+    & .tab-close-button,
+    & .tab-reset-button,
+    & .tab-reset-pin-button,
+    & .tab-audio-button {
+      display: none !important;
+    }
+
+    /* У закреплённой вкладки, ушедшей со своей страницы, Zen ставит значок
+       абсолютно у левого края. В плитке он стоит по центру, как все. */
+    & > .tab-stack > .tab-content > .tab-icon-stack {
+      position: static !important;
+      transform: none !important;
+    }
+
+    & :is(.tab-throbber, .tab-icon-pending, .tab-icon-image, .tab-sharing-icon-overlay, .tab-icon-overlay) {
+      margin-inline: 0 !important;
     }
   }
 }
@@ -238,12 +279,10 @@
   order: 1 !important;
 }
 
-/* Перетаскиваемая вкладка уходит из раскладки, но остаётся в документе:
-   Zen продолжает с ней работать до конца перетаскивания. */
+/* Перетаскиваемая вкладка уходит из раскладки целиком, её место занимает
+   проекция. В документе она остаётся: Zen переносит её при броске. */
 .tabbrowser-tab[zbm-dragging] {
-  position: absolute !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
+  display: none !important;
 }
 
 /* Содержимое папки по умолчанию блочное, а order работает только во flex. */
@@ -253,7 +292,7 @@
 }
 
 /* Сама проекция: пустое место по размеру вкладки с лёгкой заливкой. */
-:is(.zen-workspace-tabs-section, .tab-group-container, zen-folder)[zbm-gap]::before {
+:is(.zen-workspace-pinned-tabs-section, .zen-workspace-normal-tabs-section, .tab-group-container)[zbm-gap]::before {
   content: "" !important;
   order: 1 !important;
   flex: none !important;
@@ -267,8 +306,14 @@
 }
 
 /* Внутри папки проекция с тем же отступом слева, что и её вкладки. */
-:is(.tab-group-container, zen-folder)[zbm-gap]::before {
+.tab-group-container[zbm-gap]::before {
   margin-inline-start: calc(14px + var(--tab-margin-block));
+}
+
+/* Вкладку держат над свёрнутой папкой: заголовок подсвечен, папка вот-вот раскроется. */
+zen-folder[zbm-drop-hover] > .tab-group-label-container {
+  background: color-mix(in srgb, currentColor 10%, transparent) !important;
+  border-radius: var(--border-radius-medium) !important;
 }
 
 /* Пока стоит проекция, линия-индикатор Zen и подсветка заголовка папки не нужны. */
