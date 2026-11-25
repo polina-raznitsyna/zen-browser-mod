@@ -16,6 +16,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.tiles.max-three",
+    "label": "Не больше трёх плиток в ряду у важных и закреплённых",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Список вкладок"
   },
@@ -67,7 +73,7 @@
   },
   {
     "property": "mod.zbm.folders.collapse-hides-all",
-    "label": "Свёрнутая папка прячет все вкладки, включая ту, с которой ушёл фокус",
+    "label": "Свёрнутая папка прячет все вкладки, включая активную, и не достаёт её при смене пространства",
     "type": "checkbox",
     "defaultValue": true
   },
@@ -96,6 +102,12 @@
   {
     "property": "mod.zbm.dnd.ghost-follows-slot",
     "label": "Вкладка под курсором меняет вид вместе с проекцией: плитка над сеткой, строка над списком",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.dnd.no-split-on-tab",
+    "label": "Вкладка, задержанная над другой вкладкой, не делит экран",
     "type": "checkbox",
     "defaultValue": true
   },

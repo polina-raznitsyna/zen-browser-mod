@@ -27,6 +27,20 @@
   }
 }
 
+/* Не больше трёх плиток в ряду у важных, а с ними и у закреплённых. Zen
+   ставит важные по четыре, настройки для этого у него нет. Минимальная
+   ширина колонки чуть больше четверти ряда, поэтому четвёртая не помещается.
+   Сетка закреплённых берёт предел из --zbm-max-columns. */
+@media -moz-pref("mod.zbm.tiles.max-three") {
+  :root {
+    --zbm-max-columns: 3;
+  }
+
+  :root[zen-sidebar-expanded="true"] .zen-essentials-container {
+    grid-template-columns: repeat(auto-fit, minmax(max(calc(25% + 1px), var(--min-essentials-width-wrap)), 1fr)) !important;
+  }
+}
+
 /* Без полосы прокрутки в списке вкладок. */
 @media -moz-pref("mod.zbm.sidebar.hide-scrollbar") {
   zen-workspace > arrowscrollbox::part(scrollbox),
@@ -86,10 +100,11 @@
    Колонок столько же, сколько у сетки важных: их число кладёт в
    --zbm-essential-columns скрипт zbm-behavior.uc.js. Так плитки обеих сеток
    стоят друг под другом. Если важных нет или они стоят в одну-две колонки,
-   колонок столько, сколько плиток, но не больше четырёх. */
+   колонок столько, сколько плиток, но не больше четырёх или предела из
+   настройки «не больше трёх плиток в ряду». */
 @media -moz-pref("mod.zbm.pins.grid") {
   :root[zen-sidebar-expanded="true"] zen-workspace .zen-workspace-pinned-tabs-section:not([hidden]) {
-    --zbm-pin-count-columns: 4;
+    --zbm-pin-count-columns: var(--zbm-max-columns, 4);
     display: grid !important;
     grid-template-columns: repeat(var(--zbm-essential-columns, var(--zbm-pin-count-columns)), minmax(0, 1fr)) !important;
     gap: var(--zen-space-4) !important;
@@ -109,7 +124,7 @@
     /* Проекция среди плиток считается ещё одной плиткой, иначе после броска
        число колонок поменялось бы и плитки перестроились. */
     &[zbm-gap]:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab:not([zbm-dragging]))) {
-      --zbm-pin-count-columns: 4;
+      --zbm-pin-count-columns: var(--zbm-max-columns, 4);
     }
     &[zbm-gap]:not(:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab:not([zbm-dragging])))) {
       --zbm-pin-count-columns: 3;
@@ -196,16 +211,37 @@
   }
 }
 
-/* Раскрытая папка выглядит разделом: карточка с фоном и тонкой рамкой
-   вокруг заголовка и вкладок. Свёрнутая остаётся обычной строкой. */
+/* Раскрытая папка выглядит разделом: карточка с той же заливкой, что у
+   плиток важных и закреплённых. Своих отступов сверху и снизу у карточки
+   нет, поэтому при раскрытии и сворачивании строки не сдвигаются. Свёрнутая
+   папка остаётся обычной строкой. */
 @media -moz-pref("mod.zbm.folders.sections") {
   :root[zen-sidebar-expanded="true"] zen-folder:not([collapsed]) {
-    background-color: color-mix(in srgb, currentColor 5%, transparent) !important;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 7%, transparent) !important;
+    background-color: color-mix(in oklch, var(--toolbox-textcolor, currentColor) 4%, transparent) !important;
     border-radius: calc(var(--border-radius-medium) + 2px) !important;
-    margin-block: var(--tab-margin-block) !important;
     margin-inline-end: var(--tab-margin-block) !important;
-    padding-block-end: var(--tab-margin-block) !important;
+  }
+
+  /* Две раскрытые папки подряд не слипаются в одно пятно: карточка второй
+     начинается на 2px ниже, а её заголовок на столько же поднят и остаётся
+     на прежнем месте. Раскладка от этого не меняется. */
+  :root[zen-sidebar-expanded="true"] .tab-group-container > zen-folder:not([collapsed]) + zen-folder:not([collapsed]) {
+    margin-block-start: var(--tab-margin-block) !important;
+
+    & > .tab-group-label-container {
+      margin-block-start: calc(-1 * var(--tab-margin-block)) !important;
+    }
+  }
+
+  /* В сетке закреплённых между папками и так есть зазор сетки. */
+  @media not -moz-pref("mod.zbm.pins.grid") {
+    :root[zen-sidebar-expanded="true"] .zen-workspace-pinned-tabs-section > zen-folder:not([collapsed]) + zen-folder:not([collapsed]) {
+      margin-block-start: var(--tab-margin-block) !important;
+
+      & > .tab-group-label-container {
+        margin-block-start: calc(-1 * var(--tab-margin-block)) !important;
+      }
+    }
   }
 }
 

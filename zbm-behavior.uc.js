@@ -17,6 +17,7 @@
   const PREF_SWIPE_THRESHOLD = "mod.zbm.swipe.threshold";
   const PREF_SWIPE_VELOCITY = "mod.zbm.swipe.velocity";
   const PREF_PINS_GRID = "mod.zbm.pins.grid";
+  const PREF_MAX_THREE = "mod.zbm.tiles.max-three";
   const PREF_UNLOAD_HIDE = "mod.zbm.unload.hide";
   const PREF_ZEN_CLOSE_BEHAVIOR = "zen.pinned-tab-manager.close-shortcut-behavior";
 
@@ -50,6 +51,10 @@
    * а вкладка, показанная позже, уходит внутрь, как только с неё ушёл фокус.
    * То же для закреплённых вкладок пространства, свёрнутых кликом по его
    * названию: для Zen это такая же папка. Вкладки при этом не выгружаются.
+   *
+   * Смена пространства папки не трогает: вкладка, спрятанная в свёрнутую
+   * папку, не достаётся наружу оттого, что пространство снова открыли, а
+   * показанная не прячется оттого, что из него ушли.
    */
   const folderOf = tab =>
     tab.group?.hasAttribute("split-view-group") ? tab.group.group : tab.group;
@@ -86,7 +91,9 @@
         !tab.isConnected ||
         !tab.hasAttribute("folder-active") ||
         tab.selected ||
-        tab.multiselected
+        tab.multiselected ||
+        // Другие пространства остаются такими, какими их оставили.
+        tab.getAttribute("zen-workspace-id") !== gZenWorkspaces.activeWorkspace
       ) {
         continue;
       }
@@ -97,8 +104,13 @@
     }
   }
 
+  const changingSpace = () => !!window.gZenWorkspaces?.isChangingWorkspace;
+
   let hideTimer = null;
   function scheduleHide() {
+    if (changingSpace()) {
+      return;
+    }
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
       hideTimer = null;
@@ -239,9 +251,26 @@
       }
     };
 
+    // Выбранную вкладку свёрнутой папки достаёт наружу обработчик Zen. При
+    // смене пространства вкладка выбирается сама, без действия человека.
+    const originalSelect = folders.on_TabSelect;
+    const select = function (...args) {
+      let skip = false;
+      try {
+        skip = getPref(PREF_COLLAPSE_HIDES_ALL) && changingSpace();
+      } catch (error) {
+        console.error("[zen-browser-mod] folder select tweak failed:", error);
+      }
+      return skip ? undefined : originalSelect.apply(this, args);
+    };
+
     folders.animateCollapse = collapse;
     folders.animateExpand = expand;
+    folders.on_TabSelect = select;
     cleanups.push(() => {
+      if (Object.hasOwn(folders, "on_TabSelect") && folders.on_TabSelect === select) {
+        delete folders.on_TabSelect;
+      }
       if (Object.hasOwn(folders, "animateCollapse") && folders.animateCollapse === collapse) {
         delete folders.animateCollapse;
       }
@@ -260,8 +289,9 @@
    * Колонок в сетке закреплённых столько же, сколько в сетке важных.
    *
    * Число колонок у важных Zen подбирает сам по их количеству и ширине
-   * панели, настройки для него нет. Здесь оно считается по готовой раскладке
-   * и передаётся в chrome.css переменной. Если важные стоят в одну-две
+   * панели, настройки для него нет: предел в три колонки задаёт chrome.css по
+   * настройке мода. Здесь число считается по готовой раскладке и передаётся
+   * в chrome.css переменной. Если важные стоят в одну-две
    * колонки или их нет, переменной нет, и сетка считает колонки по-своему.
    */
   let columnsFrame = 0;
@@ -287,6 +317,8 @@
     } catch (error) {
       console.error("[zen-browser-mod] essentials column count failed:", error);
     }
+    // Предел сменили, а важные ещё не перестроились: сетке хватит самого предела.
+    columns = Math.min(columns, getPref(PREF_MAX_THREE) ? 3 : 4);
     if (columns >= 3) {
       root.style.setProperty("--zbm-essential-columns", columns);
     } else {
@@ -319,11 +351,13 @@
     }
     const observer = { observe: queueEssentialColumns };
     Services.prefs.addObserver(PREF_PINS_GRID, observer);
+    Services.prefs.addObserver(PREF_MAX_THREE, observer);
     // Конец перетаскивания: важные вернулись на места.
     listen(window, "dragend", queueEssentialColumns, true);
     listen(window, "drop", queueEssentialColumns, true);
     cleanups.push(() => {
       Services.prefs.removeObserver(PREF_PINS_GRID, observer);
+      Services.prefs.removeObserver(PREF_MAX_THREE, observer);
       cancelAnimationFrame(columnsFrame);
       root.style.removeProperty("--zbm-essential-columns");
     });

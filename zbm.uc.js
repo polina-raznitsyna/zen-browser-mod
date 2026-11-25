@@ -20,6 +20,9 @@
  * экрана остаются на штатной логике Zen. При любой ошибке скрипт убирает своё
  * и отдаёт перетаскивание Zen.
  *
+ * Отдельной настройкой здесь же выключается разделение экрана, которое Zen
+ * предлагает, если задержать вкладку над другой вкладкой.
+ *
  * Сверено с исходниками Zen 1.24.3b: ZenDragAndDrop.js, ZenPinnedTabManager.mjs
  * и drag-and-drop.js из Firefox 160.
  */
@@ -31,6 +34,7 @@
   const PREF_FOLDER_OPEN = "mod.zbm.dnd.folder-drop-inside";
   const PREF_NO_ESSENTIAL_LANDING = "mod.zbm.dnd.no-essential-landing";
   const PREF_GHOST = "mod.zbm.dnd.ghost-follows-slot";
+  const PREF_NO_SPLIT = "mod.zbm.dnd.no-split-on-tab";
 
   const TAB_DROP_TYPE = "application/x-moz-tabbrowser-tab";
   const MOVABLE_SELECTOR =
@@ -987,6 +991,15 @@
         guarded(endDrag);
       }
       return originals._handle_dropCreateSplit.call(this, ...args);
+    },
+
+    // Zen делит экран, если задержать вкладку над серединой другой вкладки.
+    // С настройкой мода он этого не предлагает: бросок только переставляет.
+    _handle_tabDragOverToSplit(...args) {
+      if (getPref(PREF_NO_SPLIT)) {
+        return undefined;
+      }
+      return originals._handle_tabDragOverToSplit.call(this, ...args);
     },
 
     handle_dragend(event) {
