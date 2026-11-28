@@ -136,6 +136,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.dnd.edge-scroll",
+    "label": "Список прокручивается, если поднести вкладку к его верхнему или нижнему краю",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.dnd.no-split-on-tab",
     "label": "Вкладка, задержанная над другой вкладкой, не делит экран",
     "type": "checkbox",

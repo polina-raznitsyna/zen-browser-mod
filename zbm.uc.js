@@ -29,6 +29,10 @@
  * Отдельной настройкой здесь же выключается разделение экрана, которое Zen
  * предлагает, если задержать вкладку над другой вкладкой.
  *
+ * Ещё одна настройка прокручивает список, когда вкладку или папку подносят
+ * к его краю. У Zen такой прокрутки нет: Firefox прокручивает полосу вкладок
+ * только над кнопками-стрелками, а Zen их скрывает.
+ *
  * Сверено с исходниками Zen 1.24.3b: ZenDragAndDrop.js, ZenPinnedTabManager.mjs
  * и drag-and-drop.js из Firefox 160.
  */
@@ -41,6 +45,7 @@
   const PREF_NO_ESSENTIAL_LANDING = "mod.zbm.dnd.no-essential-landing";
   const PREF_GHOST = "mod.zbm.dnd.ghost-follows-slot";
   const PREF_NO_SPLIT = "mod.zbm.dnd.no-split-on-tab";
+  const PREF_EDGE_SCROLL = "mod.zbm.dnd.edge-scroll";
 
   const TAB_DROP_TYPE = "application/x-moz-tabbrowser-tab";
   const MOVABLE_SELECTOR =
@@ -58,6 +63,12 @@
   // Ответ pick: вкладку держат над свёрнутой папкой, проекции в этой зоне ещё нет.
   const HOLD = Symbol("hold");
   const LAYOUT_TTL_MS = 500;
+  // Прокрутка у края списка: высота зоны, задержка перед стартом и скорость
+  // от границы зоны до самого края, в пикселях в секунду.
+  const EDGE_ZONE = 44;
+  const EDGE_DELAY_MS = 250;
+  const EDGE_SPEED_MIN = 150;
+  const EDGE_SPEED_MAX = 1100;
 
   const root = document.documentElement;
   const getPref = name => Services.prefs.getBoolPref(name, false);
@@ -79,6 +90,11 @@
   let holdUntil = 0;
   let dropping = false;
   const running = new Map();
+  // Идёт ли перетаскивание, начатое в этой панели: вкладки или папки.
+  let dragActive = false;
+  // Прокрутка у края списка: что прокручиваем, с какой скоростью и с какого момента.
+  let edge = null;
+  let edgeFrame = 0;
 
   const reduceMotion = () =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -867,7 +883,7 @@
     }
     const pos = normalize(picked, tab);
     if (pos) {
-      showGap(pos, zone, tab);
+      showGap(pos, zone, tab, { quiet: edgeScrolling() });
     }
     hasGap = !!gap && gap.ws === zone.ws && gap.pinned === zone.pinned;
     if (!hasGap) {
@@ -899,6 +915,99 @@
       try {
         endDrag();
       } catch {}
+    }
+  }
+
+  // ------------------------------------------------------- прокрутка у края
+
+  /** Идёт ли ещё перетаскивание: система может закончить его, не прислав сюда событий. */
+  function dragSessionActive() {
+    try {
+      const service = Cc["@mozilla.org/widget/dragservice;1"].getService(Ci.nsIDragService);
+      return !!service.getCurrentSession(window);
+    } catch {
+      return dragActive;
+    }
+  }
+
+  function stopEdgeScroll() {
+    edge = null;
+    cancelAnimationFrame(edgeFrame);
+    edgeFrame = 0;
+  }
+
+  /** Список уже едет: проекция в это время переставляется без отдачи трекпада. */
+  const edgeScrolling = () =>
+    !!edge && performance.now() - edge.since >= EDGE_DELAY_MS;
+
+  function edgeTick(now) {
+    edgeFrame = 0;
+    if (!edge || !dragActive || !edge.el.isConnected || !dragSessionActive()) {
+      stopEdgeScroll();
+      return;
+    }
+    const elapsed = Math.min(now - edge.last, 50);
+    edge.last = now;
+    if (now - edge.since >= EDGE_DELAY_MS) {
+      edge.el.scrollBy({ top: (edge.speed * elapsed) / 1000, behavior: "instant" });
+    }
+    edgeFrame = requestAnimationFrame(edgeTick);
+  }
+
+  /**
+   * Прокручиваемая часть списка под курсором и скорость, с которой её надо
+   * вести. Прокручиваться может scrollbox внутри arrowscrollbox, как у Zen,
+   * или сами секции, если закреплённые стоят на месте.
+   */
+  function edgeTarget(event) {
+    const ws = activeWorkspace();
+    if (!ws || !event.target?.closest?.("#navigator-toolbox")) {
+      return null;
+    }
+    const x = event.clientX;
+    const y = event.clientY;
+    for (const el of [ws.scrollbox?.scrollbox, ws.pinnedTabsContainer, ws.tabsContainer]) {
+      if (!el || !(el.scrollTopMax > 0)) {
+        continue;
+      }
+      const rect = el.getBoundingClientRect();
+      if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+        continue;
+      }
+      const fromTop = y - rect.top;
+      const fromBottom = rect.bottom - y;
+      const speedAt = distance =>
+        EDGE_SPEED_MIN + (EDGE_SPEED_MAX - EDGE_SPEED_MIN) * (1 - distance / EDGE_ZONE);
+      if (fromTop < EDGE_ZONE && el.scrollTop > 0) {
+        return { el, speed: -speedAt(fromTop) };
+      }
+      if (fromBottom < EDGE_ZONE && el.scrollTop < el.scrollTopMax) {
+        return { el, speed: speedAt(fromBottom) };
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /**
+   * Вызывается на каждый dragover. Прокрутка стартует, если курсор задержался
+   * в зоне у края: вкладку, которую просто проносят мимо, список не уводит.
+   */
+  function updateEdgeScroll(event) {
+    const target = dragActive && getPref(PREF_EDGE_SCROLL) ? edgeTarget(event) : null;
+    if (!target) {
+      stopEdgeScroll();
+      return;
+    }
+    const sameRun = edge && edge.el === target.el && edge.speed < 0 === target.speed < 0;
+    if (sameRun) {
+      edge.speed = target.speed;
+    } else {
+      const now = performance.now();
+      edge = { ...target, since: now, last: now };
+    }
+    if (!edgeFrame) {
+      edgeFrame = requestAnimationFrame(edgeTick);
     }
   }
 
@@ -941,6 +1050,8 @@
       // Прошлое перетаскивание могло оборваться без dragend.
       guarded(endDrag);
       drag = null;
+      stopEdgeScroll();
+      dragActive = true;
       const result = originals.startTabDrag.call(this, event, tab, ...args);
       guarded(() => {
         syncSpaceRows();
@@ -993,6 +1104,8 @@
 
     handle_drop(event) {
       dropping = false;
+      dragActive = false;
+      stopEdgeScroll();
       guarded(() => {
         cancelHover();
         clearTimeout(settleTimer);
@@ -1071,6 +1184,8 @@
       try {
         return originals.handle_dragend.call(this, event);
       } finally {
+        dragActive = false;
+        stopEdgeScroll();
         guarded(() => {
           cancelHover();
           clearTimeout(settleTimer);
@@ -1087,11 +1202,22 @@
     if ((gap || hover) && !event.target.closest?.("#navigator-toolbox")) {
       guarded(release);
     }
+    if (dragActive || edge) {
+      try {
+        updateEdgeScroll(event);
+      } catch (error) {
+        console.error("[zen-browser-mod] edge scroll failed:", error);
+        stopEdgeScroll();
+      }
+    }
   }
 
   // Вкладку унесли за пределы окна. Бросок в другое окно может не прислать
   // сюда dragend, поэтому проекцию убираем сразу.
   function onWindowDragLeave(event) {
+    if (!event.relatedTarget) {
+      stopEdgeScroll();
+    }
     if ((gap || hover) && !event.relatedTarget) {
       guarded(release);
     }
@@ -1100,6 +1226,8 @@
   // Во время перетаскивания окно не получает mousemove. Раз он пришёл, а
   // проекция ещё стоит, перетаскивание кончилось без dragend.
   function onMouseMove() {
+    dragActive = false;
+    stopEdgeScroll();
     if (gap || drag?.owned) {
       guarded(() => {
         release();
@@ -1126,6 +1254,8 @@
   function uninstall() {
     disposed = true;
     clearTimeout(readyTimer);
+    stopEdgeScroll();
+    dragActive = false;
     if (!dnd) {
       return;
     }
