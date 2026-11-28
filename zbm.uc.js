@@ -298,7 +298,13 @@
     while (next && !isAnchor(next, tab)) {
       next = next.nextElementSibling;
     }
-    return next ? { element: next, before: true } : null;
+    if (next) {
+      return { element: next, before: true };
+    }
+    // В секции нет ни вкладок, ни папок, пристроиться не к чему. Переносить
+    // вкладку внутри секции и не надо: закрепит или открепит её сам Zen по
+    // месту броска.
+    return pos.container === section ? { element: undefined, before: undefined } : null;
   }
 
   // ------------------------------------------------------------ снимок раскладки
@@ -867,12 +873,18 @@
       }
     }
     if (!L.rows.length) {
-      // В зоне не к чему пристроиться: пустую секцию Zen обрабатывает сам.
-      if (hasGap) {
-        return true;
+      // В зоне нет ни вкладок, ни папок: проекция встаёт в её начало.
+      if (!hasGap) {
+        const start = { container: zone.section, next: firstFlow(zone.section, tab) };
+        showGap(normalize(start, tab), zone, tab);
+        hasGap = !!gap && gap.ws === zone.ws && gap.pinned === zone.pinned;
       }
-      release();
-      return false;
+      if (!hasGap) {
+        release();
+        return false;
+      }
+      setImageForm(event, !!layout?.grid && gap.container === zone.section);
+      return true;
     }
 
     const picked = pick(event, zone, L, hasGap, tab);
