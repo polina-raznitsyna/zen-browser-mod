@@ -63,11 +63,25 @@
       overflow-y: auto;
       scrollbar-width: none;
     }
-    /* Зазор до первой строки списка лежит внутри обёртки: курсор над ним
-       остаётся в закреплённых и для мода, и для Zen. Признак filled ставит
-       скрипт, пока в сетке есть хоть одна видимая плитка. */
-    :host([zbm-split]) #zbm-tiles[filled] {
+    /* Низ обёртки лежит внутри неё самой: курсор над ним остаётся в
+       закреплённых и для мода, и для Zen. Признаки filled и rows ставит
+       скрипт: есть ли в сетке видимая плитка и есть ли под ней папки.
+
+       Над папками стоит разделитель, такой же, как у Zen между закреплёнными
+       и обычными вкладками: полоса той же высоты с линией посередине. Без
+       папок сразу под плитками идёт разделитель самого Zen, поэтому остаётся
+       только обычный зазор сетки. */
+    :host([zbm-split]) #zbm-tiles[filled]:not([rows]) {
       padding-block-end: var(--zen-space-4);
+    }
+    :host([zbm-split]) #zbm-tiles[filled][rows]::after {
+      content: "";
+      order: 2;
+      grid-column: 1 / -1;
+      height: var(--zen-size-22, 22px);
+      background: linear-gradient(light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.1)) 0 0) no-repeat;
+      background-size: calc(100% - 2 * var(--zen-space-5, 5px) - var(--zen-space-4, 4px)) 1px;
+      background-position: calc(var(--zen-space-5, 5px) + var(--zen-space-4, 4px)) center;
     }
     :host([zbm-split][zbm-pins-anim]) #zbm-tiles {
       overflow: clip;
@@ -138,15 +152,27 @@
     }
   }
 
+  const isShown = element => element.getBoundingClientRect().height > 0;
+
   /**
-   * Высота места над прокруткой равна высоте обёртки. Зазор под плитками
-   * нужен, только пока плитки есть: без них обёртка должна сойти в ноль.
+   * Высота места над прокруткой равна высоте обёртки. Что у обёртки внизу,
+   * зависит от того, есть ли в сетке видимые плитки и видимые папки под ней.
    */
   function syncHeight(state) {
-    const { tiles, host } = state;
-    const padding = parseFloat(getComputedStyle(tiles).paddingBottom) || 0;
-    const content = tiles.getBoundingClientRect().height - padding;
-    tiles.toggleAttribute("filled", content > 0.5);
+    const { section, tiles, host } = state;
+    // Проекция при перетаскивании занимает место плитки.
+    let filled = section.hasAttribute("zbm-gap");
+    let rows = false;
+    for (const child of section.children) {
+      if (child.getAttribute("slot") === SLOT) {
+        filled ||= isShown(child);
+      } else if (child.isZenFolder || child.hasAttribute("split-view-group")) {
+        rows ||= isShown(child);
+      }
+    }
+    tiles.toggleAttribute("filled", filled);
+    tiles.toggleAttribute("rows", rows);
+    host.toggleAttribute("zbm-rows", filled && rows);
     const value = `${tiles.getBoundingClientRect().height}px`;
     if (host.style.getPropertyValue(HEIGHT_VAR) !== value) {
       host.style.setProperty(HEIGHT_VAR, value);
@@ -167,6 +193,7 @@
 
     state.mutations = new MutationObserver(records => {
       assign(section);
+      syncHeight(state);
       for (const record of records) {
         for (const node of record.removedNodes) {
           // Вкладка могла уже встать в такую же секцию другого пространства.
@@ -180,6 +207,18 @@
 
     state.resizes = new ResizeObserver(() => syncHeight(state));
     state.resizes.observe(tiles);
+
+    // Прокручен ли список: по этому признаку chrome.css рисует линию под
+    // плитками. Штатный признак Zen здесь не годится: он смотрит на первый
+    // элемент секции, а в сетке это скрытый служебный элемент.
+    state.scroller = host.scrollbox;
+    state.onScroll = () => {
+      const scrolled = state.scroller.scrollTop > 0;
+      if (scrolled !== host.hasAttribute("zbm-scrolled")) {
+        host.toggleAttribute("zbm-scrolled", scrolled);
+      }
+    };
+    state.scroller?.addEventListener("scroll", state.onScroll, { passive: true });
 
     // Выбранную вкладку Zen подводит в видимую часть списка. Плитка стоит
     // вне прокрутки, и попытка подвести её дёргала бы список к началу.
@@ -202,6 +241,9 @@
     section.setAttribute("zbm-split", "");
     host.setAttribute("zbm-split", "");
     syncHeight(state);
+    if (state.scroller) {
+      state.onScroll();
+    }
   }
 
   function deactivate(section) {
@@ -212,6 +254,10 @@
     states.delete(section);
     state.mutations.disconnect();
     state.resizes.disconnect();
+    state.scroller?.removeEventListener("scroll", state.onScroll);
+    state.host.removeAttribute("zbm-scrolled");
+    state.host.removeAttribute("zbm-rows");
+    state.tiles.removeAttribute("rows");
     if (state.host._canScrollToElement === state.canScrollWrapper) {
       state.host._canScrollToElement = state.canScroll;
     }

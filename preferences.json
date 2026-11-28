@@ -38,6 +38,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.sidebar.no-scroll-to-tab",
+    "label": "Не показывать плашку перехода к выбранной вкладке, прокрученной за край",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.sidebar.no-autoscroll-on-space-switch",
     "label": "Не прокручивать список к активной вкладке при смене пространства",
     "type": "checkbox",

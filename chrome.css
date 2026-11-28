@@ -41,6 +41,14 @@
   }
 }
 
+/* Без плашки со значком выбранной вкладки и стрелкой, которой Zen
+   предлагает прокрутить список к ней. */
+@media -moz-pref("mod.zbm.sidebar.no-scroll-to-tab") {
+  .zen-workspace-scroll-to-tab {
+    display: none !important;
+  }
+}
+
 /* Без полосы прокрутки в списке вкладок. */
 @media -moz-pref("mod.zbm.sidebar.hide-scrollbar") {
   zen-workspace > arrowscrollbox::part(scrollbox),
@@ -106,9 +114,16 @@
 zen-workspace > arrowscrollbox.workspace-arrowscrollbox[zbm-split] {
   padding-block-start: var(--zbm-tiles-height, 0px) !important;
 
-  /* Линия, которой Zen отмечает прокрученный список, встаёт под плитками. */
+  /* Линия, которой Zen отмечает прокрученный список, встаёт под плитками и
+     видна, только когда список и правда прокручен. Над папками она не
+     нужна: там под плитками всегда стоит разделитель. */
   &::before {
     top: var(--zbm-tiles-height, 0px) !important;
+    opacity: 0 !important;
+  }
+
+  &[zbm-scrolled]:not([zbm-rows])::before {
+    opacity: 1 !important;
   }
 }
 
@@ -384,6 +399,11 @@ zen-workspace[collapsedpinnedtabs] .zen-workspace-pinned-tabs-section[zbm-split]
 zen-folder[zbm-drop-hover] > .tab-group-label-container {
   background: color-mix(in srgb, currentColor 10%, transparent) !important;
   border-radius: var(--border-radius-medium) !important;
+}
+
+/* Вкладка, которую несут, скрыта, и Zen считает, что она прокручена за край. */
+:root[zbm-live-dnd] .zen-workspace-scroll-to-tab {
+  display: none !important;
 }
 
 /* Пока стоит проекция, линия-индикатор Zen и подсветка заголовка папки не нужны. */
