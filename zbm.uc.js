@@ -15,6 +15,12 @@
  * друг друга. При броске Zen получает готовую цель в _dragData и переносит
  * вкладку сам.
  *
+ * Если zbm-pins.uc.js вынес плитки закреплённых над прокруткой (секция
+ * помечена zbm-split), вкладка верхнего уровня в закреплённых всегда встаёт
+ * в сетку плиток, а папки на вид стоят ниже сетки. Поэтому место верхнего
+ * уровня там сводится к плитке, перед которой встанет вкладка, а проекцию
+ * рисует обёртка плиток.
+ *
  * Работает для одной вкладки, которую переносят внутри панели. Перетаскивание
  * самих папок, мультивыделения, сетка важных вкладок, копирование и разделение
  * экрана остаются на штатной логике Zen. При любой ошибке скрипт убирает своё
@@ -49,6 +55,8 @@
   // Средняя часть заголовка свёрнутой папки не двигает проекцию, а ждёт раскрытия.
   const FOLDER_HOLD_FROM = 0.3;
   const FOLDER_HOLD_TO = 0.7;
+  // Ответ pick: вкладку держат над свёрнутой папкой, проекции в этой зоне ещё нет.
+  const HOLD = Symbol("hold");
   const LAYOUT_TTL_MS = 500;
 
   const root = document.documentElement;
@@ -189,6 +197,39 @@
     return null;
   }
 
+  /** Секция закреплённых, где плитки вынесены над прокруткой. */
+  const isSplitSection = section => !!section?.hasAttribute?.("zbm-split");
+
+  /**
+   * В секции с вынесенными плитками папки между плитками на вид не стоят,
+   * поэтому разные места в документе дают одно и то же место в сетке. Место
+   * сводится к плитке, перед которой встанет вкладка, или к концу сетки.
+   */
+  function normalize(pos, tab) {
+    if (!pos || !isSplitSection(pos.container)) {
+      return pos;
+    }
+    let next = pos.next;
+    while (next && (next === tab || !isPlainTab(next))) {
+      next = next.nextElementSibling;
+    }
+    if (!next) {
+      // Конец сетки это место сразу за последней плиткой, а не конец секции:
+      // иначе вкладка перескочила бы в документе через папки, стоящие следом.
+      let last = null;
+      for (const child of pos.container.children) {
+        if (child !== tab && isPlainTab(child)) {
+          last = child;
+        }
+      }
+      next = last ? nextFlow(last, tab) : firstFlow(pos.container, tab);
+    }
+    return { container: pos.container, next };
+  }
+
+  /** Плитки и список меняют высоту места над прокруткой: просим обновить её сразу. */
+  const syncTiles = workspace => workspace?.pinnedTabsContainer?._zbmSyncTiles?.();
+
   /** Место, где перетаскиваемая вкладка стоит сейчас, если проекцию там можно показать. */
   function homePos(tab, zone) {
     const container = tab.parentElement;
@@ -265,6 +306,9 @@
     const rows = [];
     const style = getComputedStyle(zone.section);
     const grid = zone.pinned && style.display === "grid";
+    const split = zone.pinned && isSplitSection(zone.section);
+    // Верхний край прокрутки: выше него видны только плитки, строки там обрезаны.
+    const scroller = split ? zone.ws.scrollbox?.scrollbox : null;
     const push = (el, kind, extra) => {
       const rect = el.getBoundingClientRect();
       if (!rect.height || !rect.width) {
@@ -320,6 +364,8 @@
       tab,
       rows,
       grid,
+      split,
+      clipTop: scroller ? scroller.getBoundingClientRect().top : -Infinity,
       rtl: style.direction === "rtl",
       top: rows.length ? Math.min(...rows.map(row => row.top)) : 0,
       bottom: rows.length ? Math.max(...rows.map(row => row.bottom)) : 0,
@@ -377,6 +423,7 @@
     const was = measure(list);
     cancelRunning();
     removeGapAttributes();
+    syncTiles(workspace);
     layout = null;
     glide(list, was);
   }
@@ -444,6 +491,7 @@
     tab._dragData.dropBefore = drop.before;
     drag.armed = true;
 
+    syncTiles(zone.ws);
     layout = buildLayout(zone, tab);
     const rowHeight = layout.rowSize?.h;
     if (rowHeight && rowHeight !== knownHeight) {
@@ -540,7 +588,6 @@
           const inner = folder.groupContainer;
           const stillThere =
             drag?.owned &&
-            gap &&
             tab &&
             inner &&
             openedFolder === folder &&
@@ -616,7 +663,7 @@
   }
 
   /**
-   * Место для проекции под курсором или null, если её не надо двигать.
+   * Место для проекции под курсором, null, если её не надо двигать, или HOLD.
    *
    * Строка под курсором сама задаёт место своей половиной. Это правило
    * устойчиво: после сдвига курсор оказывается либо над проекцией, либо над
@@ -631,11 +678,15 @@
       return posBefore(rows[0]);
     }
 
+    // Над вынесенными плитками строки списка есть, но обрезаны прокруткой:
+    // там считаются только плитки, ниже только строки.
+    const overTiles = L.split && y < L.clipTop;
     const row = rows.find(
       item =>
         y >= item.top &&
         y < item.bottom &&
-        (!item.tile || (x >= item.left && x < item.right))
+        (!item.tile || (x >= item.left && x < item.right)) &&
+        (!L.split || !!item.tile === overTiles)
     );
     if (row?.folder !== openedFolder || row.kind !== "label") {
       openedFolder = null;
@@ -652,14 +703,11 @@
       }
       if (row.folder && row.kind === "block" && y >= row.labelTop && y < row.labelBottom) {
         const part = (y - row.labelTop) / (row.labelBottom - row.labelTop);
-        if (
-          hasGap &&
-          part >= FOLDER_HOLD_FROM &&
-          part <= FOLDER_HOLD_TO &&
-          getPref(PREF_FOLDER_OPEN)
-        ) {
+        if (part >= FOLDER_HOLD_FROM && part <= FOLDER_HOLD_TO && getPref(PREF_FOLDER_OPEN)) {
           startHover(row.folder, zone);
-          return null;
+          // Без проекции в этой зоне ставить её пока некуда: она сдвинула бы
+          // папку из-под курсора. Ждём раскрытия.
+          return hasGap ? null : HOLD;
         }
         cancelHover();
         return part < 0.5 ? posBefore(row) : posAfter(row, tab);
@@ -669,17 +717,19 @@
     }
 
     cancelHover();
-    if (y < L.top) {
-      return posBefore(rows[0]);
-    }
-    if (y >= L.bottom) {
-      // Курсор над проекцией в конце папки: она уже стоит ниже всех строк.
-      if (hasGap && gap.container !== zone.section && event.target === gap.container) {
-        return null;
+    if (!L.split) {
+      if (y < L.top) {
+        return posBefore(rows[0]);
       }
-      return endPos(zone.section, tab) ?? (hasGap ? null : posAfter(rows.at(-1), tab));
+      if (y >= L.bottom) {
+        // Курсор над проекцией в конце папки: она уже стоит ниже всех строк.
+        if (hasGap && gap.container !== zone.section && event.target === gap.container) {
+          return null;
+        }
+        return endPos(zone.section, tab) ?? (hasGap ? null : posAfter(rows.at(-1), tab));
+      }
     }
-    if (L.grid) {
+    if (L.grid && (!L.split || overTiles)) {
       // Курсор в пустом хвосте ряда плиток: место после последней плитки ряда.
       const line = rows.filter(item => item.tile && y >= item.top && y < item.bottom);
       if (line.length) {
@@ -692,8 +742,16 @@
       }
     }
     if (hasGap) {
+      if (overTiles && gap.container !== zone.section) {
+        // Курсор поднялся к плиткам, а проекция осталась в папке ниже.
+        return endPos(zone.section, tab);
+      }
       // Курсор над самой проекцией или в зазоре между строками.
       return null;
+    }
+    if (L.split) {
+      // Вкладку внесли в закреплённые мимо строк: она встанет последней плиткой.
+      return endPos(zone.section, tab);
     }
     const closest = nearest(rows, y);
     return y < (closest.top + closest.bottom) / 2 ? posBefore(closest) : posAfter(closest, tab);
@@ -788,7 +846,7 @@
     if (!drag.started) {
       // Начало перетаскивания: проекция встаёт на место самой вкладки, ничего не сдвигая.
       drag.started = true;
-      const home = hasGap ? null : homePos(tab, zone);
+      const home = hasGap ? null : normalize(homePos(tab, zone), tab);
       if (home && showGap(home, zone, tab, { quiet: true })) {
         setImageForm(event, layout.grid && home.container === zone.section);
         return true;
@@ -803,7 +861,11 @@
       return false;
     }
 
-    const pos = pick(event, zone, L, hasGap, tab);
+    const picked = pick(event, zone, L, hasGap, tab);
+    if (picked === HOLD) {
+      return true;
+    }
+    const pos = normalize(picked, tab);
     if (pos) {
       showGap(pos, zone, tab);
     }
@@ -990,6 +1052,9 @@
       if (dropping) {
         guarded(endDrag);
       }
+      // Вкладка уже перенесена. Если плитки вынесены над прокруткой, она
+      // должна встать в сетку до того, как Zen измерит её место.
+      guarded(() => syncTiles(activeWorkspace()));
       return originals._handle_dropCreateSplit.call(this, ...args);
     },
 

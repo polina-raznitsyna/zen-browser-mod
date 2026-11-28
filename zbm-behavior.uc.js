@@ -160,36 +160,73 @@
   }
 
   /**
+   * Части области закреплённых, у которых при сворачивании меняется высота:
+   * сама секция и обёртка плиток, если zbm-pins.uc.js вынес плитки над
+   * прокруткой.
+   */
+  function pinsParts(section) {
+    const tiles = section.hasAttribute("zbm-split")
+      ? section.shadowRoot?.getElementById("zbm-tiles")
+      : null;
+    return tiles ? [section, tiles] : [section];
+  }
+
+  /** Высоты частей до переключения, снятые без пересчёта раскладки. */
+  function pinsHeights(section) {
+    return new Map(
+      pinsParts(section).map(part => [
+        part,
+        window.windowUtils.getBoundsWithoutFlushing(part).height,
+      ])
+    );
+  }
+
+  /**
    * Сворачивание и раскрытие сетки закреплённых. Zen сдвигает содержимое
    * области вверх отступом служебного элемента, а в сетке такой сдвиг не
    * работает. Поэтому здесь высоту области ведёт своя анимация, а конечный
    * вид свёрнутой области задан в chrome.css.
    *
    * @param {Element} section - Секция закреплённых.
-   * @param {number} from - Её высота до переключения, снятая без пересчёта раскладки.
+   * @param {Map<Element, number>} from - Высоты её частей до переключения.
    */
   function animatePins(section, from) {
     // Прошлая анимация могла не закончиться: её высота мешала бы измерить конечную.
-    pinsAnimations.get(section)?.cancel();
+    for (const animation of pinsAnimations.get(section) ?? []) {
+      animation.cancel();
+    }
     pinsAnimations.delete(section);
     section.removeAttribute("zbm-pins-anim");
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       return;
     }
-    // Высота после переключения: атрибут Zen уже поменял, пересчёт даёт конечный вид.
-    const to = section.getBoundingClientRect().height;
-    if (Math.abs(from - to) < 1) {
+    // Высоты после переключения: атрибут Zen уже поменял, пересчёт даёт конечный вид.
+    section._zbmSyncTiles?.();
+    const changes = [];
+    for (const [part, was] of from) {
+      const to = part.getBoundingClientRect().height;
+      if (Math.abs(was - to) >= 1) {
+        changes.push([part, was, to]);
+      }
+    }
+    if (!changes.length) {
       return;
     }
-    section.setAttribute("zbm-pins-anim", "");
-    const animation = section.animate(
-      [{ height: `${from}px` }, { height: `${to}px` }],
-      { duration: PINS_ANIMATION_MS, easing: "ease-in-out" }
+    // Если какая-то плитка остаётся на виду, остальные убираются сразу: иначе
+    // она ехала бы на своём старом месте в сетке и в конце перескакивала.
+    const tiles = pinsParts(section)[1];
+    const keepsTile = !!tiles && tiles.getBoundingClientRect().height >= 1;
+    section.setAttribute("zbm-pins-anim", keepsTile ? "keep" : "");
+    const animations = changes.map(([part, was, to]) =>
+      part.animate([{ height: `${was}px` }, { height: `${to}px` }], {
+        duration: PINS_ANIMATION_MS,
+        easing: "ease-in-out",
+      })
     );
-    pinsAnimations.set(section, animation);
-    animation.finished.then(
+    pinsAnimations.set(section, animations);
+    Promise.all(animations.map(animation => animation.finished)).then(
       () => {
-        if (pinsAnimations.get(section) === animation) {
+        if (pinsAnimations.get(section) === animations) {
           pinsAnimations.delete(section);
           section.removeAttribute("zbm-pins-anim");
         }
@@ -200,19 +237,18 @@
 
   function installFolderAnimations() {
     const folders = gZenFolders;
-    const bounds = el => window.windowUtils.getBoundsWithoutFlushing(el).height;
 
     const originalCollapse = folders.animateCollapse;
     const collapse = function (group, ...rest) {
       let restore = null;
       let section = null;
-      let from = 0;
+      let from = null;
       try {
         if (getPref(PREF_COLLAPSE_HIDES_ALL)) {
           restore = pretendNothingSelected(group);
         }
         section = pinsGridSection(group);
-        from = section ? bounds(section) : 0;
+        from = section ? pinsHeights(section) : null;
       } catch (error) {
         console.error("[zen-browser-mod] folder collapse tweak failed:", error);
       }
@@ -221,7 +257,7 @@
       } finally {
         try {
           restore?.();
-          if (section) {
+          if (from) {
             animatePins(section, from);
           }
         } catch (error) {
@@ -233,10 +269,10 @@
     const originalExpand = folders.animateExpand;
     const expand = function (group, ...rest) {
       let section = null;
-      let from = 0;
+      let from = null;
       try {
         section = pinsGridSection(group);
-        from = section ? bounds(section) : 0;
+        from = section ? pinsHeights(section) : null;
       } catch (error) {
         console.error("[zen-browser-mod] folder expand tweak failed:", error);
       }
@@ -244,7 +280,7 @@
         return originalExpand.call(this, group, ...rest);
       } finally {
         try {
-          if (section) {
+          if (from) {
             animatePins(section, from);
           }
         } catch (error) {
@@ -279,8 +315,10 @@
       if (Object.hasOwn(folders, "animateExpand") && folders.animateExpand === expand) {
         delete folders.animateExpand;
       }
-      for (const [section, animation] of pinsAnimations) {
-        animation.cancel();
+      for (const [section, animations] of pinsAnimations) {
+        for (const animation of animations) {
+          animation.cancel();
+        }
         section.removeAttribute("zbm-pins-anim");
       }
       pinsAnimations.clear();

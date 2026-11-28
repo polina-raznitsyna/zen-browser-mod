@@ -56,6 +56,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.pins.folders-scroll",
+    "label": "Папки прокручиваются вместе с обычными вкладками, на месте стоят только плитки (нужны обе настройки выше)",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.pins.no-reset-button",
     "label": "Убрать кнопку сброса, которая появляется на значке закреплённой вкладки",
     "type": "checkbox",

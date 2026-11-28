@@ -64,9 +64,13 @@
    много, они прокручиваются сами, и обычные вкладки не пропадают с экрана.
 
    Вбок части не прокручиваются вовсе. Иначе горизонтальный жест по списку
-   уходит в их боковую прокрутку и не доходит до перелистывания пространств. */
+   уходит в их боковую прокрутку и не доходит до перелистывания пространств.
+
+   Пометка zbm-split значит, что работает другая раскладка: на месте стоят
+   только плитки, а папки прокручиваются с обычными вкладками. Её правила
+   ниже, эти к ней не применяются. */
 @media -moz-pref("mod.zbm.pins.sticky") {
-  :root[zen-sidebar-expanded="true"] zen-workspace > arrowscrollbox.workspace-arrowscrollbox {
+  :root[zen-sidebar-expanded="true"] zen-workspace > arrowscrollbox.workspace-arrowscrollbox:not([zbm-split]) {
     flex: 1 1 100% !important;
     overflow-y: hidden !important;
 
@@ -88,9 +92,36 @@
   }
 
   /* При свёрнутых закреплённых Zen сам обрезает секцию, оставляем как у него. */
-  :root[zen-sidebar-expanded="true"] zen-workspace[collapsedpinnedtabs] > arrowscrollbox.workspace-arrowscrollbox > .zen-workspace-pinned-tabs-section {
+  :root[zen-sidebar-expanded="true"] zen-workspace[collapsedpinnedtabs] > arrowscrollbox.workspace-arrowscrollbox:not([zbm-split]) > .zen-workspace-pinned-tabs-section {
     overflow: clip !important;
   }
+}
+
+/* На месте стоят только закреплённые вкладки вне папок, а папки
+   прокручиваются вместе с обычными вкладками. Раскладку собирает
+   zbm-pins.uc.js: он выносит плитки в обёртку над прокруткой и помечает
+   секцию и arrowscrollbox атрибутом zbm-split, поэтому своей настройки в CSS
+   у этих правил нет. Список прокручивается штатно, как у Zen, а место под
+   плитки держит отступ высотой с обёртку. */
+zen-workspace > arrowscrollbox.workspace-arrowscrollbox[zbm-split] {
+  padding-block-start: var(--zbm-tiles-height, 0px) !important;
+
+  /* Линия, которой Zen отмечает прокрученный список, встаёт под плитками. */
+  &::before {
+    top: var(--zbm-tiles-height, 0px) !important;
+  }
+}
+
+/* Сворачивание области, при котором одна из вынесенных плиток остаётся на
+   виду: остальные убираются сразу, не дожидаясь конца анимации высоты. */
+zen-workspace[collapsedpinnedtabs] .zen-workspace-pinned-tabs-section[zbm-split][zbm-pins-anim="keep"]
+  > .tabbrowser-tab:not([folder-active]) {
+  display: none !important;
+}
+
+/* Проекцию среди плиток рисует обёртка плиток, а не сама секция. */
+.zen-workspace-pinned-tabs-section[zbm-split][zbm-gap]::before {
+  display: none !important;
 }
 
 /* Закреплённые вкладки пространства плитками, как важные: только значок.
