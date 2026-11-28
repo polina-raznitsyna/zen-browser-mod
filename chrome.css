@@ -49,6 +49,15 @@
   }
 }
 
+/* Без линий, которыми Zen отмечает прокрученный список: одна встаёт у его
+   верхнего края, другая у нижнего, над значками пространств. */
+@media -moz-pref("mod.zbm.sidebar.no-scroll-lines") {
+  zen-workspace > arrowscrollbox.workspace-arrowscrollbox::before,
+  zen-workspace > arrowscrollbox.workspace-arrowscrollbox::after {
+    display: none !important;
+  }
+}
+
 /* Без полосы прокрутки в списке вкладок. Здесь только части списка, которые
    прокручиваются сами при неподвижных закреплённых.
 
@@ -115,7 +124,8 @@ zen-workspace > arrowscrollbox.workspace-arrowscrollbox[zbm-split] {
 
   /* Линия, которой Zen отмечает прокрученный список, встаёт под плитками и
      видна, только когда список и правда прокручен. Над папками она не
-     нужна: там под плитками всегда стоит разделитель. */
+     нужна: там под плитками стоит разделитель обёртки. Настройка «без
+     линий» убирает её совсем. */
   &::before {
     top: var(--zbm-tiles-height, 0px) !important;
     opacity: 0 !important;

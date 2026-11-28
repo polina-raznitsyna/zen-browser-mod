@@ -32,6 +32,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.sidebar.no-scroll-lines",
+    "label": "Убрать линии у верхнего и нижнего края прокрученного списка",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.sidebar.no-bottom-gap",
     "label": "Убрать пустое место под вкладками",
     "type": "checkbox",

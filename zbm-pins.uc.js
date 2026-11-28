@@ -63,17 +63,15 @@
       overflow-y: auto;
       scrollbar-width: none;
     }
-    /* Низ обёртки лежит внутри неё самой: курсор над ним остаётся в
-       закреплённых и для мода, и для Zen. Признаки filled и rows ставит
-       скрипт: есть ли в сетке видимая плитка и есть ли под ней папки.
+    /* Под плитками всегда стоит разделитель, и стоит он внутри обёртки:
+       список обрезается уже под ним, а курсор над ним остаётся в
+       закреплённых и для мода, и для Zen.
 
-       Над папками стоит разделитель, такой же, как у Zen между закреплёнными
-       и обычными вкладками: полоса той же высоты с линией посередине. Без
-       папок сразу под плитками идёт разделитель самого Zen, поэтому остаётся
-       только обычный зазор сетки. */
-    :host([zbm-split]) #zbm-tiles[filled]:not([rows]) {
-      padding-block-end: var(--zen-space-4);
-    }
+       Если под плитками есть папки, разделитель рисует сама обёртка: полоса
+       той же высоты, что у Zen между закреплёнными и обычными вкладками, с
+       линией посередине. Если папок нет, сразу за плитками идёт разделитель
+       самого Zen, и скрипт переносит в слот плиток его. Признаки filled и
+       rows ставит скрипт: есть ли в сетке видимая плитка и есть ли папки. */
     :host([zbm-split]) #zbm-tiles[filled][rows]::after {
       content: "";
       order: 2;
@@ -82,6 +80,10 @@
       background: linear-gradient(light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.1)) 0 0) no-repeat;
       background-size: calc(100% - 2 * var(--zen-space-5, 5px) - var(--zen-space-4, 4px)) 1px;
       background-position: calc(var(--zen-space-5, 5px) + var(--zen-space-4, 4px)) center;
+    }
+    /* Разделитель Zen в обёртке стоит после всех плиток и после проекции. */
+    slot[name="zbm-tiles"]::slotted(.pinned-tabs-container-separator) {
+      order: 2;
     }
     :host([zbm-split][zbm-pins-anim]) #zbm-tiles {
       overflow: clip;
@@ -160,19 +162,36 @@
    */
   function syncHeight(state) {
     const { section, tiles, host } = state;
-    // Проекция при перетаскивании занимает место плитки.
-    let filled = section.hasAttribute("zbm-gap");
-    let rows = false;
-    for (const child of section.children) {
-      if (child.getAttribute("slot") === SLOT) {
-        filled ||= isShown(child);
-      } else if (child.isZenFolder || child.hasAttribute("split-view-group")) {
-        rows ||= isShown(child);
+    // Пока закреплённые сворачиваются или раскрываются, конечная раскладка
+    // уже выставлена, а на виду ещё старое содержимое: по нему судить нельзя.
+    if (!section.hasAttribute("zbm-pins-anim")) {
+      // Проекция при перетаскивании занимает место плитки.
+      let filled = section.hasAttribute("zbm-gap");
+      let rows = false;
+      for (const child of section.children) {
+        if (gBrowser.isTab(child)) {
+          filled ||= child.getAttribute("slot") === SLOT && isShown(child);
+        } else if (child.isZenFolder || child.hasAttribute("split-view-group")) {
+          rows ||= isShown(child);
+        }
+      }
+      tiles.toggleAttribute("filled", filled);
+      tiles.toggleAttribute("rows", rows);
+      host.toggleAttribute("zbm-rows", filled && rows);
+      // Без папок разделитель Zen стоит сразу за плитками: он уходит к ним
+      // в обёртку и перестаёт прокручиваться.
+      const separator = section.separatorElement;
+      if (separator?.parentElement === section) {
+        const pinned = filled && !rows;
+        if ((separator.getAttribute("slot") === SLOT) !== pinned) {
+          if (pinned) {
+            separator.setAttribute("slot", SLOT);
+          } else {
+            separator.removeAttribute("slot");
+          }
+        }
       }
     }
-    tiles.toggleAttribute("filled", filled);
-    tiles.toggleAttribute("rows", rows);
-    host.toggleAttribute("zbm-rows", filled && rows);
     const value = `${tiles.getBoundingClientRect().height}px`;
     if (host.style.getPropertyValue(HEIGHT_VAR) !== value) {
       host.style.setProperty(HEIGHT_VAR, value);
