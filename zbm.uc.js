@@ -90,8 +90,6 @@
   let holdUntil = 0;
   let dropping = false;
   const running = new Map();
-  // Идёт ли перетаскивание, начатое в этой панели: вкладки или папки.
-  let dragActive = false;
   // Прокрутка у края списка: что прокручиваем, с какой скоростью и с какого момента.
   let edge = null;
   let edgeFrame = 0;
@@ -920,13 +918,28 @@
 
   // ------------------------------------------------------- прокрутка у края
 
-  /** Идёт ли ещё перетаскивание: система может закончить его, не прислав сюда событий. */
+  /**
+   * Идёт ли ещё перетаскивание: система может закончить его, не прислав сюда
+   * событий. Собственный признак для этого не годится: mousemove, с которого
+   * перетаскивание началось, приходит уже после dragstart.
+   */
   function dragSessionActive() {
     try {
       const service = Cc["@mozilla.org/widget/dragservice;1"].getService(Ci.nsIDragService);
       return !!service.getCurrentSession(window);
     } catch {
-      return dragActive;
+      // Службу спросить не вышло: считаем по тому, как давно был dragover.
+      return !!edge && performance.now() - edge.seen < 1000;
+    }
+  }
+
+  /** Несут ли вкладку или папку: у папки тот же тип данных, что у вкладки. */
+  function isTabDrag(event) {
+    try {
+      const data = event.dataTransfer;
+      return !!data?.mozItemCount && data.mozTypesAt(0)[0] === TAB_DROP_TYPE;
+    } catch {
+      return false;
     }
   }
 
@@ -942,11 +955,12 @@
 
   function edgeTick(now) {
     edgeFrame = 0;
-    if (!edge || !dragActive || !edge.el.isConnected || !dragSessionActive()) {
+    if (!edge || !edge.el.isConnected || !dragSessionActive()) {
       stopEdgeScroll();
       return;
     }
-    const elapsed = Math.min(now - edge.last, 50);
+    // Метка кадра может оказаться чуть раньше момента, когда прокрутку завели.
+    const elapsed = Math.max(0, Math.min(now - edge.last, 50));
     edge.last = now;
     if (now - edge.since >= EDGE_DELAY_MS) {
       edge.el.scrollBy({ top: (edge.speed * elapsed) / 1000, behavior: "instant" });
@@ -994,17 +1008,19 @@
    * в зоне у края: вкладку, которую просто проносят мимо, список не уводит.
    */
   function updateEdgeScroll(event) {
-    const target = dragActive && getPref(PREF_EDGE_SCROLL) ? edgeTarget(event) : null;
+    const target =
+      getPref(PREF_EDGE_SCROLL) && isTabDrag(event) ? edgeTarget(event) : null;
     if (!target) {
       stopEdgeScroll();
       return;
     }
+    const now = performance.now();
     const sameRun = edge && edge.el === target.el && edge.speed < 0 === target.speed < 0;
     if (sameRun) {
       edge.speed = target.speed;
+      edge.seen = now;
     } else {
-      const now = performance.now();
-      edge = { ...target, since: now, last: now };
+      edge = { ...target, since: now, last: now, seen: now };
     }
     if (!edgeFrame) {
       edgeFrame = requestAnimationFrame(edgeTick);
@@ -1051,7 +1067,6 @@
       guarded(endDrag);
       drag = null;
       stopEdgeScroll();
-      dragActive = true;
       const result = originals.startTabDrag.call(this, event, tab, ...args);
       guarded(() => {
         syncSpaceRows();
@@ -1104,7 +1119,6 @@
 
     handle_drop(event) {
       dropping = false;
-      dragActive = false;
       stopEdgeScroll();
       guarded(() => {
         cancelHover();
@@ -1184,7 +1198,6 @@
       try {
         return originals.handle_dragend.call(this, event);
       } finally {
-        dragActive = false;
         stopEdgeScroll();
         guarded(() => {
           cancelHover();
@@ -1202,13 +1215,11 @@
     if ((gap || hover) && !event.target.closest?.("#navigator-toolbox")) {
       guarded(release);
     }
-    if (dragActive || edge) {
-      try {
-        updateEdgeScroll(event);
-      } catch (error) {
-        console.error("[zen-browser-mod] edge scroll failed:", error);
-        stopEdgeScroll();
-      }
+    try {
+      updateEdgeScroll(event);
+    } catch (error) {
+      console.error("[zen-browser-mod] edge scroll failed:", error);
+      stopEdgeScroll();
     }
   }
 
@@ -1226,8 +1237,6 @@
   // Во время перетаскивания окно не получает mousemove. Раз он пришёл, а
   // проекция ещё стоит, перетаскивание кончилось без dragend.
   function onMouseMove() {
-    dragActive = false;
-    stopEdgeScroll();
     if (gap || drag?.owned) {
       guarded(() => {
         release();
@@ -1255,7 +1264,6 @@
     disposed = true;
     clearTimeout(readyTimer);
     stopEdgeScroll();
-    dragActive = false;
     if (!dnd) {
       return;
     }
