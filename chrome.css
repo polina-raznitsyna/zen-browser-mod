@@ -49,19 +49,18 @@
   }
 }
 
-/* Без полосы прокрутки в списке вкладок. */
+/* Без полосы прокрутки в списке вкладок. Здесь только части списка, которые
+   прокручиваются сами при неподвижных закреплённых.
+
+   Обычно у Zen прокручивается scrollbox внутри теневого дерева
+   arrowscrollbox. Эта таблица подключена как пользовательская, а правила
+   ::part() браузер берёт только из авторских, поэтому отсюда до него не
+   дотянуться. Полосу прокрутки, пустое место под вкладками и боковую
+   прокрутку у него убирает zbm-behavior.uc.js своей таблицей внутри
+   теневого дерева. */
 @media -moz-pref("mod.zbm.sidebar.hide-scrollbar") {
-  zen-workspace > arrowscrollbox::part(scrollbox),
   .zen-workspace-tabs-section {
     scrollbar-width: none !important;
-  }
-}
-
-/* Zen добавляет под вкладками пустое место высотой в три вкладки.
-   Оставляем только обычный зазор. */
-@media -moz-pref("mod.zbm.sidebar.no-bottom-gap") {
-  zen-workspace > arrowscrollbox[overflowing]::part(scrollbox) {
-    padding-block-end: var(--tab-margin-block) !important;
   }
 }
 

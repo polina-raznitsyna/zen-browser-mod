@@ -1,8 +1,8 @@
 /*
  * Правки поведения боковой панели, не связанные с перетаскиванием:
  * свёрнутые папки и закреплённые, переименование папки, число колонок в сетке закреплённых,
- * подсказка у крестика, автопрокрутка списка, значки пространств и жест
- * перелистывания пространств. Каждая включается своей настройкой и проверяет её в момент
+ * подсказка у крестика, автопрокрутка списка, стили его прокручиваемой
+ * части, значки пространств и жест перелистывания пространств. Каждая включается своей настройкой и проверяет её в момент
  * срабатывания.
  *
  * Сверено с исходниками Zen 1.24.3b: ZenFolders.mjs, ZenFolder.mjs,
@@ -13,6 +13,8 @@
 
   const PREF_COLLAPSE_HIDES_ALL = "mod.zbm.folders.collapse-hides-all";
   const PREF_NO_AUTOSCROLL = "mod.zbm.sidebar.no-autoscroll-on-space-switch";
+  const PREF_HIDE_SCROLLBAR = "mod.zbm.sidebar.hide-scrollbar";
+  const PREF_NO_BOTTOM_GAP = "mod.zbm.sidebar.no-bottom-gap";
   const PREF_SWIPE = "mod.zbm.swipe.easier";
   const PREF_SWIPE_THRESHOLD = "mod.zbm.swipe.threshold";
   const PREF_SWIPE_VELOCITY = "mod.zbm.swipe.velocity";
@@ -499,6 +501,86 @@
   }
 
   /*
+   * Стили прокручиваемой части списка вкладок.
+   *
+   * У Zen прокручивается не сам arrowscrollbox, а scrollbox в его теневом
+   * дереве. Таблица стилей мода подключена как пользовательская, а правила
+   * ::part() браузер берёт только из авторских таблиц, поэтому из chrome.css
+   * до этой части не дотянуться. Здесь таблица кладётся прямо в теневое
+   * дерево arrowscrollbox каждого пространства. Правила Zen для этой части
+   * приходят снаружи и без !important, поэтому внутренние с !important сильнее.
+   *
+   * - Полоса прокрутки скрыта.
+   * - Под вкладками обычный зазор вместо пустого места высотой в три вкладки.
+   * - Вбок список не прокручивается. Иначе горизонтальный жест уходит в его
+   *   боковую прокрутку с отскоком и не доходит до перелистывания пространств.
+   */
+  const SCROLLBOX_RULES = [
+    [PREF_HIDE_SCROLLBAR, "scrollbox { scrollbar-width: none !important; }"],
+    [
+      PREF_NO_BOTTOM_GAP,
+      ":host([overflowing]) scrollbox { padding-block-end: var(--tab-margin-block) !important; }",
+    ],
+    [PREF_SWIPE, ":host([overflowing]) scrollbox { overflow-x: hidden !important; }"],
+  ];
+
+  function installScrollboxStyles() {
+    const sheet = new CSSStyleSheet();
+    const rewrite = () => {
+      sheet.replaceSync(
+        SCROLLBOX_RULES.filter(([pref]) => getPref(pref))
+          .map(([, rule]) => rule)
+          .join("\n")
+      );
+    };
+    const rootsOf = () =>
+      [...document.querySelectorAll("zen-workspace > arrowscrollbox")]
+        .map(box => box.shadowRoot)
+        .filter(Boolean);
+    const attach = () => {
+      if (disposed) {
+        return;
+      }
+      for (const shadow of rootsOf()) {
+        if (!shadow.adoptedStyleSheets.includes(sheet)) {
+          shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
+        }
+      }
+    };
+    const guarded = step => () => {
+      try {
+        step();
+      } catch (error) {
+        console.error("[zen-browser-mod] list scrollbox styles failed:", error);
+      }
+    };
+
+    const prefObserver = { observe: guarded(rewrite) };
+    for (const [pref] of SCROLLBOX_RULES) {
+      Services.prefs.addObserver(pref, prefObserver);
+    }
+    // Пространства создают и удаляют.
+    const onChange = guarded(attach);
+    const strip = document.getElementById("tabbrowser-arrowscrollbox");
+    const stripObserver = new MutationObserver(onChange);
+    if (strip) {
+      stripObserver.observe(strip, { childList: true });
+    }
+    listen(window, "ZenWorkspacesUIUpdate", onChange);
+    cleanups.push(() => {
+      for (const [pref] of SCROLLBOX_RULES) {
+        Services.prefs.removeObserver(pref, prefObserver);
+      }
+      stripObserver.disconnect();
+      for (const shadow of rootsOf()) {
+        shadow.adoptedStyleSheets = shadow.adoptedStyleSheets.filter(item => item !== sheet);
+      }
+    });
+    guarded(rewrite)();
+    onChange();
+  }
+
+  /*
    * Значки пространств внизу панели не превращаются в точки без причины.
    *
    * Zen заменяет значки точками, когда они не помещаются в полосу. Проверяет
@@ -600,6 +682,7 @@
     listen(gNavToolbox, "mouseover", onTabButtonHover, true);
     cleanups.push(restoreTabButtonTooltips);
     installAutoscrollGuard();
+    installScrollboxStyles();
     installSpaceIconsCheck();
     for (const type of ["MozSwipeGestureStart", "MozSwipeGestureUpdate"]) {
       listen(gNavToolbox, type, onSwipe, true);
