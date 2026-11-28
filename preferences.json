@@ -90,6 +90,12 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.folders.rename-click",
+    "label": "Клик по папке во время переименования не сворачивает её",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.unload.hide",
     "label": "Убрать всё про выгрузку вкладок: крестики вместо минусов",
     "type": "checkbox",

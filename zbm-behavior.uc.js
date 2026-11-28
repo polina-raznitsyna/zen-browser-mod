@@ -1,6 +1,6 @@
 /*
  * Правки поведения боковой панели, не связанные с перетаскиванием:
- * свёрнутые папки и закреплённые, число колонок в сетке закреплённых,
+ * свёрнутые папки и закреплённые, переименование папки, число колонок в сетке закреплённых,
  * подсказка у крестика, автопрокрутка списка, значки пространств и жест
  * перелистывания пространств. Каждая включается своей настройкой и проверяет её в момент
  * срабатывания.
@@ -19,6 +19,7 @@
   const PREF_PINS_GRID = "mod.zbm.pins.grid";
   const PREF_MAX_THREE = "mod.zbm.tiles.max-three";
   const PREF_SPACE_ICONS = "mod.zbm.spaces.keep-icons";
+  const PREF_RENAME_CLICK = "mod.zbm.folders.rename-click";
   const PREF_UNLOAD_HIDE = "mod.zbm.unload.hide";
   const PREF_ZEN_CLOSE_BEHAVIOR = "zen.pinned-tab-manager.close-shortcut-behavior";
 
@@ -287,6 +288,37 @@
   }
 
   /*
+   * Клик по строке папки, пока её переименовывают.
+   *
+   * Переключателем папки Zen считает любой клик внутри строки её заголовка,
+   * а поле с названием стоит в этой же строке. Поэтому клик по названию,
+   * чтобы поставить курсор, сворачивает папку, а нажатие рядом с полем ещё и
+   * обрывает переименование. Пока в строке стоит поле, клик до папки не
+   * доходит, а нажатие мимо поля не забирает у него фокус.
+   */
+  function renamingRow(target) {
+    const row = target?.closest?.(".tab-group-label-container");
+    return row?.querySelector(":scope > #tab-label-input") ? row : null;
+  }
+
+  function onRenameMouseDown(event) {
+    if (
+      event.button === 0 &&
+      getPref(PREF_RENAME_CLICK) &&
+      event.target.id !== "tab-label-input" &&
+      renamingRow(event.target)
+    ) {
+      event.preventDefault();
+    }
+  }
+
+  function onRenameClick(event) {
+    if (getPref(PREF_RENAME_CLICK) && renamingRow(event.target)) {
+      event.stopPropagation();
+    }
+  }
+
+  /*
    * Колонок в сетке закреплённых столько же, сколько в сетке важных.
    *
    * Число колонок у важных Zen подбирает сам по их количеству и ширине
@@ -524,6 +556,8 @@
   function install() {
     listen(window, "TabSelect", scheduleHide);
     installFolderAnimations();
+    listen(gNavToolbox, "mousedown", onRenameMouseDown, true);
+    listen(gNavToolbox, "click", onRenameClick, true);
     installEssentialColumns();
     listen(gNavToolbox, "mouseover", onTabButtonHover, true);
     cleanups.push(restoreTabButtonTooltips);
