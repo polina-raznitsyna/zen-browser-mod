@@ -56,6 +56,18 @@
     "defaultValue": true
   },
   {
+    "property": "mod.zbm.pins.no-reset-button",
+    "label": "Убрать кнопку сброса, которая появляется на значке закреплённой вкладки",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "mod.zbm.spaces.keep-icons",
+    "label": "Значки пространств не превращаются в точки, пока помещаются",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Папки"
   },

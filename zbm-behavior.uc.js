@@ -1,12 +1,12 @@
 /*
  * Правки поведения боковой панели, не связанные с перетаскиванием:
  * свёрнутые папки и закреплённые, число колонок в сетке закреплённых,
- * подсказка у крестика, автопрокрутка списка и жест перелистывания
- * пространств. Каждая включается своей настройкой и проверяет её в момент
+ * подсказка у крестика, автопрокрутка списка, значки пространств и жест
+ * перелистывания пространств. Каждая включается своей настройкой и проверяет её в момент
  * срабатывания.
  *
  * Сверено с исходниками Zen 1.24.3b: ZenFolders.mjs, ZenFolder.mjs,
- * ZenSpace.mjs, ZenSpacesSwipe.mjs, ZenSpaceManager.mjs.
+ * ZenSpace.mjs, ZenSpacesSwipe.mjs, ZenSpaceManager.mjs, ZenSpaceIcons.mjs.
  */
 (() => {
   "use strict";
@@ -18,6 +18,7 @@
   const PREF_SWIPE_VELOCITY = "mod.zbm.swipe.velocity";
   const PREF_PINS_GRID = "mod.zbm.pins.grid";
   const PREF_MAX_THREE = "mod.zbm.tiles.max-three";
+  const PREF_SPACE_ICONS = "mod.zbm.spaces.keep-icons";
   const PREF_UNLOAD_HIDE = "mod.zbm.unload.hide";
   const PREF_ZEN_CLOSE_BEHAVIOR = "zen.pinned-tab-manager.close-shortcut-behavior";
 
@@ -428,6 +429,77 @@
   }
 
   /*
+   * Значки пространств внизу панели не превращаются в точки без причины.
+   *
+   * Zen заменяет значки точками, когда они не помещаются в полосу. Проверяет
+   * он это при изменении размера окна и списка пространств, а ширину полосы
+   * берёт без пересчёта раскладки. Если в этот момент ширина старая или
+   * нулевая, точки остаются до следующей проверки, хотя места хватает.
+   * Здесь проверка повторяется, как только у полосы поменялась ширина или
+   * Zen включил точки. Если значки и правда не помещаются, точки остаются.
+   */
+  function installSpaceIconsCheck() {
+    const strip = gZenWorkspaces.workspaceIcons;
+    if (!strip) {
+      return;
+    }
+    let frame = 0;
+    let retryTimer = null;
+    let retries = 0;
+    const queue = () => {
+      if (!frame && !disposed) {
+        frame = requestAnimationFrame(recheck);
+      }
+    };
+    function recheck() {
+      frame = 0;
+      if (disposed || !getPref(PREF_SPACE_ICONS)) {
+        return;
+      }
+      // Пока Zen анимирует компактный режим, проверку он пропускает.
+      if (gZenWorkspaces._processingResize) {
+        if (retries++ < 10) {
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(queue, 300);
+        }
+        return;
+      }
+      retries = 0;
+      try {
+        // Чтение размера пересчитывает раскладку: Zen увидит настоящую ширину.
+        strip.getBoundingClientRect();
+        // Тот же путь, каким Zen проверяет значки при изменении размера окна.
+        gZenWorkspaces.onWindowResize({ target: window });
+      } catch (error) {
+        console.error("[zen-browser-mod] space icons check failed:", error);
+      }
+    }
+    const resizes = new ResizeObserver(queue);
+    resizes.observe(strip);
+    // Повторная установка того же атрибута самой проверкой сюда не попадает.
+    const mutations = new MutationObserver(records => {
+      if (records.some(record => record.oldValue === null) && strip.hasAttribute("icons-overflow")) {
+        queue();
+      }
+    });
+    mutations.observe(strip, {
+      attributes: true,
+      attributeFilter: ["icons-overflow"],
+      attributeOldValue: true,
+    });
+    const observer = { observe: queue };
+    Services.prefs.addObserver(PREF_SPACE_ICONS, observer);
+    cleanups.push(() => {
+      resizes.disconnect();
+      mutations.disconnect();
+      Services.prefs.removeObserver(PREF_SPACE_ICONS, observer);
+      cancelAnimationFrame(frame);
+      clearTimeout(retryTimer);
+    });
+    queue();
+  }
+
+  /*
    * Жест перелистывания пространств.
    *
    * Удался ли свайп, решает система по двум числам, которые Zen кладёт в
@@ -456,6 +528,7 @@
     listen(gNavToolbox, "mouseover", onTabButtonHover, true);
     cleanups.push(restoreTabButtonTooltips);
     installAutoscrollGuard();
+    installSpaceIconsCheck();
     for (const type of ["MozSwipeGestureStart", "MozSwipeGestureUpdate"]) {
       listen(gNavToolbox, type, onSwipe, true);
     }

@@ -211,36 +211,39 @@
   }
 }
 
+/* У закреплённой вкладки, ушедшей со своей страницы, Zen при наведении на
+   значок сайта показывает кнопку «сбросить и закрепить». Кнопка остаётся на
+   месте, потому что держит место под значок, но перестаёт ловить курсор:
+   значок не подменяется, подсказки и подзаголовка нет, клик выбирает вкладку.
+   Пункт сброса в меню вкладки остаётся. */
+@media -moz-pref("mod.zbm.pins.no-reset-button") {
+  .tabbrowser-tab[zen-pinned-changed="true"] .tab-reset-pin-button {
+    pointer-events: none !important;
+  }
+}
+
 /* Раскрытая папка выглядит разделом: карточка с той же заливкой, что у
-   плиток важных и закреплённых. Своих отступов сверху и снизу у карточки
-   нет, поэтому при раскрытии и сворачивании строки не сдвигаются. Свёрнутая
-   папка остаётся обычной строкой. */
+   плиток важных и закреплённых. Свёрнутая папка остаётся обычной строкой.
+
+   Край карточки совпадает с фоном заголовка и вкладок внутри, без ободка
+   вокруг них. Для этого у папки прозрачная рамка в 2px, под которой фон не
+   рисуется, а заголовок и вкладки выдвинуты на эту рамку отрицательными
+   отступами. Размер и место папки и её строк остаются прежними, поэтому при
+   раскрытии и сворачивании ничего не сдвигается, а между соседними
+   карточками получается обычный зазор, как между вкладками. */
 @media -moz-pref("mod.zbm.folders.sections") {
   :root[zen-sidebar-expanded="true"] zen-folder:not([collapsed]) {
+    border: var(--tab-margin-block) solid transparent !important;
+    border-radius: calc(var(--border-radius-medium) + var(--tab-margin-block)) !important;
     background-color: color-mix(in oklch, var(--toolbox-textcolor, currentColor) 4%, transparent) !important;
-    border-radius: calc(var(--border-radius-medium) + 2px) !important;
-    margin-inline-end: var(--tab-margin-block) !important;
-  }
-
-  /* Две раскрытые папки подряд не слипаются в одно пятно: карточка второй
-     начинается на 2px ниже, а её заголовок на столько же поднят и остаётся
-     на прежнем месте. Раскладка от этого не меняется. */
-  :root[zen-sidebar-expanded="true"] .tab-group-container > zen-folder:not([collapsed]) + zen-folder:not([collapsed]) {
-    margin-block-start: var(--tab-margin-block) !important;
+    background-clip: padding-box !important;
 
     & > .tab-group-label-container {
-      margin-block-start: calc(-1 * var(--tab-margin-block)) !important;
+      margin: calc(-1 * var(--tab-margin-block)) calc(-1 * var(--tab-margin-block)) 0 !important;
     }
-  }
 
-  /* В сетке закреплённых между папками и так есть зазор сетки. */
-  @media not -moz-pref("mod.zbm.pins.grid") {
-    :root[zen-sidebar-expanded="true"] .zen-workspace-pinned-tabs-section > zen-folder:not([collapsed]) + zen-folder:not([collapsed]) {
-      margin-block-start: var(--tab-margin-block) !important;
-
-      & > .tab-group-label-container {
-        margin-block-start: calc(-1 * var(--tab-margin-block)) !important;
-      }
+    & > .tab-group-container {
+      margin: 0 calc(-1 * var(--tab-margin-block)) calc(-1 * var(--tab-margin-block)) !important;
     }
   }
 }
