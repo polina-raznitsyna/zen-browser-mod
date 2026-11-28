@@ -26,6 +26,12 @@
     "label": "Список вкладок"
   },
   {
+    "property": "mod.zbm.tabs.split-multiselect",
+    "label": "Разделённые вкладки выделяются только парой и с той же подсветкой, что остальные",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "mod.zbm.sidebar.hide-scrollbar",
     "label": "Скрыть полосу прокрутки",
     "type": "checkbox",
@@ -168,6 +174,16 @@
   {
     "property": "mod.zbm.dnd.quiet-drop-zone",
     "label": "Спокойная подсветка места, куда можно бросить вкладку",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Клавиатура"
+  },
+  {
+    "property": "mod.zbm.keys.undo-close-tab",
+    "label": "Cmd+Z возвращает закрытую вкладку, когда в тексте отменять нечего",
     "type": "checkbox",
     "defaultValue": true
   },

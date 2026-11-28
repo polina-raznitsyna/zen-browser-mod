@@ -2,7 +2,8 @@
  * Правки поведения боковой панели, не связанные с перетаскиванием:
  * свёрнутые папки и закреплённые, переименование папки, число колонок в сетке закреплённых,
  * подсказка у крестика, автопрокрутка списка, стили его прокручиваемой
- * части, значки пространств и жест перелистывания пространств. Каждая включается своей настройкой и проверяет её в момент
+ * части, значки пространств, жест перелистывания пространств, выделение
+ * разделённых вкладок и возврат закрытой вкладки по Cmd+Z. Каждая включается своей настройкой и проверяет её в момент
  * срабатывания.
  *
  * Сверено с исходниками Zen 1.24.3b: ZenFolders.mjs, ZenFolder.mjs,
@@ -22,6 +23,8 @@
   const PREF_MAX_THREE = "mod.zbm.tiles.max-three";
   const PREF_SPACE_ICONS = "mod.zbm.spaces.keep-icons";
   const PREF_RENAME_CLICK = "mod.zbm.folders.rename-click";
+  const PREF_SPLIT_SELECT = "mod.zbm.tabs.split-multiselect";
+  const PREF_UNDO_CLOSE = "mod.zbm.keys.undo-close-tab";
   const PREF_UNLOAD_HIDE = "mod.zbm.unload.hide";
   const PREF_ZEN_CLOSE_BEHAVIOR = "zen.pinned-tab-manager.close-shortcut-behavior";
 
@@ -652,6 +655,91 @@
   }
 
   /*
+   * Разделённые вкладки выделяются целиком.
+   *
+   * Диапазон по Shift+клику Zen считает по отдельным вкладкам, поэтому из
+   * пары разделённых в выделение могла попасть одна: зависело от того, по
+   * какой из двух кликнули и с какой стороны шёл диапазон. Здесь пара всегда
+   * выделена целиком или не выделена вовсе. Вид такого выделения задан в
+   * chrome.css.
+   */
+  const splitSelected = new WeakMap();
+
+  function onMultiSelect() {
+    if (!getPref(PREF_SPLIT_SELECT)) {
+      return;
+    }
+    for (const group of document.querySelectorAll("tab-group[split-view-group]")) {
+      const tabs = [
+        ...group.querySelectorAll(":scope > .tab-group-container > .tabbrowser-tab"),
+      ].filter(tab => tab.visible);
+      const chosen = tabs.filter(tab => tab.multiselected);
+      const before = splitSelected.get(group) ?? 0;
+      let after = chosen.length;
+      if (after && after < tabs.length) {
+        // Выделенных стало меньше: с одной из вкладок выделение сняли, значит
+        // снимаем со всей пары. Активную вкладку браузер держит выделенной
+        // сам, поэтому пару с ней только дополняем.
+        if (after < before && !tabs.includes(gBrowser.selectedTab)) {
+          for (const tab of chosen) {
+            gBrowser.removeFromMultiSelectedTabs(tab);
+          }
+          after = 0;
+        } else {
+          for (const tab of tabs) {
+            if (!tab.multiselected) {
+              gBrowser.addToMultiSelectedTabs(tab);
+            }
+          }
+          after = tabs.length;
+        }
+      }
+      splitSelected.set(group, after);
+    }
+  }
+
+  /*
+   * Cmd+Z возвращает закрытую вкладку.
+   *
+   * Сочетание занято отменой ввода, и она остаётся главной: пока браузер
+   * считает, что в поле под курсором есть что отменять, клавиша работает как
+   * обычно. Если отменять нечего, срабатывает та же команда, что по
+   * Cmd+Shift+T. Клавиша определяется по месту на клавиатуре, поэтому
+   * раскладка не важна.
+   */
+  function onUndoKey(event) {
+    if (
+      event.code !== "KeyZ" ||
+      !event.getModifierState("Accel") ||
+      event.shiftKey ||
+      event.altKey ||
+      event.repeat ||
+      event.defaultPrevented ||
+      !getPref(PREF_UNDO_CLOSE)
+    ) {
+      return;
+    }
+    let canUndoText = true;
+    try {
+      // Так же доступность отмены проверяет сам браузер для меню «Правка».
+      const controller = document.commandDispatcher.getControllerForCommand("cmd_undo");
+      canUndoText = !!controller?.isCommandEnabled("cmd_undo");
+    } catch (error) {
+      console.error("[zen-browser-mod] undo availability check failed:", error);
+    }
+    if (canUndoText) {
+      return;
+    }
+    const command = document.getElementById("History:RestoreLastClosedTabOrWindowOrSession");
+    if (!command) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    command.doCommand();
+  }
+
+  /*
    * Жест перелистывания пространств.
    *
    * Удался ли свайп, решает система по двум числам, которые Zen кладёт в
@@ -684,6 +772,8 @@
     installAutoscrollGuard();
     installScrollboxStyles();
     installSpaceIconsCheck();
+    listen(window, "TabMultiSelect", onMultiSelect);
+    listen(window, "keydown", onUndoKey, true);
     for (const type of ["MozSwipeGestureStart", "MozSwipeGestureUpdate"]) {
       listen(gNavToolbox, type, onSwipe, true);
     }

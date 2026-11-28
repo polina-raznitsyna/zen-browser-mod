@@ -4,8 +4,8 @@
   "description": "Правки боковой панели Zen: важные и закреплённые вкладки, прокрутка, папки, перетаскивание. Каждая правка включается своей настройкой.",
   "homepage": "https://github.com/polina-raznitsyna/zen-browser-mod",
   "author": "polina-raznitsyna",
-  "version": "0.8.2",
-  "updatedAt": "2026-11-28T14:49:01Z",
+  "version": "0.9.0",
+  "updatedAt": "2026-11-28T15:12:19Z",
   "style": {
     "chrome": "chrome.css"
   },

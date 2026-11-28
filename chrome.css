@@ -277,6 +277,27 @@ zen-workspace[collapsedpinnedtabs] .zen-workspace-pinned-tabs-section[zbm-split]
   }
 }
 
+/* Выделенная пара разделённых вкладок выглядит так же, как активная пара:
+   общий светлый фон на обе вкладки. У Zen выделенные вкладки внутри пары
+   получали каждая свою тусклую подсветку. Что пара выделяется только
+   целиком, обеспечивает zbm-behavior.uc.js. */
+@media -moz-pref("mod.zbm.tabs.split-multiselect") {
+  tab-group[split-view-group]:has(> .tab-group-container > .tabbrowser-tab[multiselected]) > .tab-group-container {
+    background-color: var(--tab-background-color-selected) !important;
+    box-shadow: var(--tab-box-shadow-selected) !important;
+
+    & > .tabbrowser-tab {
+      & .tab-background {
+        background-color: var(--zen-split-view-active-tab-bg) !important;
+      }
+
+      &::after {
+        display: none !important;
+      }
+    }
+  }
+}
+
 /* Раскрытая папка выглядит разделом: карточка с той же заливкой, что у
    плиток важных и закреплённых. Свёрнутая папка остаётся обычной строкой.
 
